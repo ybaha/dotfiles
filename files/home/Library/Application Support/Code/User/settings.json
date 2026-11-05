@@ -1,0 +1,107 @@
+{
+  "editor.fontFamily": "Cascadia Code",
+  "editor.fontLigatures": true,
+  "editor.fontWeight": "500",
+  "editor.lineHeight": 2.15,
+  "window.autoDetectColorScheme": true,
+  "workbench.preferredLightColorTheme": "Solarized Light",
+  "workbench.preferredDarkColorTheme": "Bearded Theme Monokai Terra",
+  "editor.minimap.enabled": false,
+  "diffEditor.ignoreTrimWhitespace": false,
+  "editor.fontSize": 15,
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "editor.tabSize": 2,
+  "git.confirmSync": false,
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "vscode.html-language-features",
+    "editor.tabSize": 4
+  },
+  "workbench.colorTheme": "Bearded Theme Monokai Terra",
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools"
+  },
+  "C_Cpp.errorSquiggles": "Enabled",
+  "code-runner.runInTerminal": true,
+  "editor.inlineSuggest.enabled": true,
+  "github.copilot.enable": {
+    "*": true,
+    "plaintext": false,
+    "markdown": true,
+    "scminput": false,
+    "yaml": true,
+    "typescript": true,
+    "html": true
+  },
+  "quokka.showStartViewOnFeatureRelease": false,
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "go.toolsManagement.autoUpdate": true,
+  "C_Cpp.clang_format_fallbackStyle": "LLVM",
+  "C_Cpp.default.cppStandard": "c++11",
+  "eslint.format.enable": true,
+  "eslint.quiet": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "workbench.sideBar.location": "right",
+  "[python]": {
+    "editor.formatOnType": true,
+    "editor.defaultFormatter": "ms-python.autopep8"
+  },
+  "git.allowForcePush": true,
+  "reactSnippets.settings.languageScopes": "typescript,typescriptreact",
+  "reactSnippets.settings.typescriptPropsStatePrefix": "interface",
+  "python.formatting.provider": "none",
+  "python.defaultInterpreterPath": "/opt/homebrew/opt/python@3.11/bin/python3.11",
+  "window.commandCenter": false,
+  "workbench.layoutControl.enabled": false,
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "eslint.codeActionsOnSave.rules": null,
+  "editor.formatOnSave": true,
+  "evenBetterToml.rules": [],
+  "[mdx]": {},
+  "githubPullRequests.pullBranch": "never",
+  "window.zoomLevel": -1,
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true,
+    "**/.next": true,
+    "**/.cache": true,
+    "**/.git": true,
+    "**/.vscode": true,
+    "**/.idea": true,
+    "**/.DS_Store": true,
+    "**/.env": true,
+    "**/.yarn": true,
+    "**/.pnp": true,
+    "**/.yarnrc": true,
+    "**/.yarnrc.yml": true,
+    "**/.yarnrc.yaml": true,
+    "**/.yarnrc.json": true,
+    "**/.yarnrc.lock": true,
+    "**/yarn.lock": true,
+    "**/package-lock.json": true,
+    "**/npm-debug.log": true
+  },
+  "prisma.showPrismaDataPlatformNotification": false,
+  "github.copilot.editor.enableAutoCompletions": true,
+  "liveServer.settings.donotVerifyTags": true
+}

@@ -1,0 +1,642 @@
+#!/usr/bin/env python3
+"""Private, dependency-free project previews for macOS and Linux."""
+import argparse
+import contextlib
+import fcntl
+import hashlib
+import html
+import http.client
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import signal
+import socket
+import socketserver
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+
+ROOT = Path(__file__).resolve().parent
+LIMIT = 65536
+MARKER = 'preview-hub managed'
+
+
+def state_dir():
+    return Path(os.environ.get('PREVIEW_HUB_STATE_DIR') or
+                Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'preview-hub')
+
+
+def private_dir(path):
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.chmod(0o700)
+
+
+def run(argv, timeout=15, env=None):
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
+    if p.returncode:
+        raise RuntimeError((p.stderr or p.stdout or 'command failed').strip()[:240])
+    return p.stdout
+
+
+@contextlib.contextmanager
+def daemon_lock(base):
+    private_dir(base)
+    with (base / 'daemon.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('preview-hub is already running') from None
+        yield
+
+
+def ttl_seconds(text):
+    scale = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
+    try:
+        result = int(text[:-1]) * scale[text[-1]]
+        if result > 0:
+            return result
+    except (ValueError, KeyError, IndexError):
+        pass
+    raise ValueError('TTL must be positive, e.g. 2h or 24h')
+
+
+def http_ok(port):
+    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=1)
+    try:
+        conn.request('GET', '/')
+        return 200 <= conn.getresponse().status < 500
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+
+
+def process_identity(pid):
+    if pid <= 1:
+        return None
+    try:
+        if sys.platform.startswith('linux'):
+            stat = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+            if stat[0] == 'Z':
+                return None
+            return Path('/proc/sys/kernel/random/boot_id').read_text().strip() + ':' + stat[19]
+        return run(['ps', '-p', str(pid), '-o', 'lstart='], timeout=3).strip() or None
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        return None
+
+
+def stop_process(entry):
+    pid, identity = entry.get('pid'), entry.get('identity')
+    if not pid or not identity or process_identity(pid) != identity:
+        return
+    try:
+        if os.getpgid(pid) != pid or pid == os.getpgrp():
+            return
+        os.killpg(pid, signal.SIGTERM)
+        for _ in range(20):
+            try:
+                if os.waitpid(pid, os.WNOHANG)[0]:
+                    return
+            except ChildProcessError:
+                pass
+            if process_identity(pid) != identity:
+                return
+            time.sleep(.1)
+        if process_identity(pid) == identity and os.getpgid(pid) == pid:
+            os.killpg(pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+
+
+class Tailscale:
+    def __init__(self):
+        app = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
+        self.binary = app if sys.platform == 'darwin' and Path(app).is_file() else shutil.which('tailscale')
+
+    def call(self, *args):
+        if not self.binary:
+            raise RuntimeError('Tailscale is required; install and sign in first')
+        # The macOS bundle otherwise may launch its GUI from a login service.
+        return run([self.binary, *args], env=dict(os.environ, TAILSCALE_BE_CLI='1'))
+
+    def dns(self):
+        status = json.loads(self.call('status', '--json'))
+        name = status.get('Self', {}).get('DNSName', '').rstrip('.')
+        if status.get('BackendState') != 'Running' or not name:
+            raise RuntimeError('Tailscale is not connected')
+        return name
+
+    def status(self):
+        return json.loads(self.call('serve', 'status', '--json') or '{}')
+
+    @staticmethod
+    def target(status, port):
+        """None = unused; False = foreign/complex; string = sole HTTPS root proxy."""
+        key = str(port)
+        web = [v for k, v in status.get('Web', {}).items() if k.rsplit(':', 1)[-1] == key]
+        tcp = status.get('TCP', {}).get(key)
+        funnel = any(v for k, v in status.get('AllowFunnel', {}).items() if k.rsplit(':', 1)[-1] == key)
+        if not web and tcp is None and not funnel:
+            return None
+        if len(web) != 1 or tcp != {'HTTPS': True} or funnel:
+            return False
+        handlers = web[0].get('Handlers', {})
+        if set(handlers) != {'/'} or set(handlers['/']) != {'Proxy'}:
+            return False
+        proxy = handlers['/']['Proxy']
+        return proxy.replace('http://localhost:', 'http://127.0.0.1:').rstrip('/')
+
+    def add(self, port, target):
+        try:
+            self.call('serve', '--bg', f'--https={port}', target)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            raise RuntimeError(f'HTTPS publication failed; check Tailscale HTTPS certificates: {e}') from None
+
+    def remove(self, port):
+        self.call('serve', f'--https={port}', 'off')
+
+
+class Hub:
+    def __init__(self, base=None, tailscale=None, port=8766):
+        self.base, self.ts, self.port = Path(base or state_dir()), tailscale or Tailscale(), port
+        private_dir(self.base)
+        self.file = self.base / 'state.json'
+        self.data = json.loads(self.file.read_text()) if self.file.exists() else {'previews': {}, 'routes': {}}
+        self.lock, self.dns, self.error = threading.RLock(), '', ''
+        self.running, self.children = True, {}
+
+    def save(self):
+        with self.lock:
+            tmp = self.file.with_suffix('.tmp')
+            with tmp.open('w') as out:
+                os.chmod(tmp, 0o600)
+                json.dump(self.data, out, separators=(',', ':'))
+                out.flush()
+                os.fsync(out.fileno())
+            tmp.replace(self.file)
+
+    def put(self, entry):
+        with self.lock:
+            self.data['previews'][entry['id']] = dict(entry)
+            self.save()
+
+    def entries(self):
+        with self.lock:
+            return sorted((dict(e) for e in self.data['previews'].values()), key=lambda e: e['published_at'], reverse=True)
+
+    def hub_url(self):
+        port = self.data.get('hub_port', 443)
+        return f'https://{self.dns}' + (f':{port}/' if port != 443 else '/') if self.dns else ''
+
+    def snapshot(self):
+        now = time.time()
+        previews = [{k: e[k] for k in ('id', 'title', 'published_at', 'expires_at')} |
+                    {'url': f'https://{self.dns}:{e["external"]}/', 'status': 'ok'}
+                    for e in self.entries() if self.dns and e.get('ready') and e['expires_at'] > now and not e.get('unhealthy_since')]
+        return {'previews': previews, 'hub_url': self.hub_url(), 'error': self.error}
+
+    def remove_route(self, port):
+        key = str(port)
+        owned = self.data['routes'].get(key)
+        if not owned:
+            return
+        owned['pending'] = True
+        self.save()
+        current = self.ts.target(self.ts.status(), port)
+        if current == owned['target']:
+            self.ts.remove(port)
+        # A changed route belongs to someone else; relinquish our stale claim.
+        self.data['routes'].pop(key, None)
+        self.save()
+
+    def ensure_route(self, port, target):
+        current = self.ts.target(self.ts.status(), port)
+        owned = self.data['routes'].get(str(port))
+        if current is not None:
+            if current == target and owned and owned['target'] == target and not owned.get('pending'):
+                return
+            raise RuntimeError(f'Tailscale port {port} is already owned by another service')
+        self.data['routes'][str(port)] = {'target': target, 'pending': True}
+        self.save()  # Retain cleanup ownership even if the CLI times out after applying.
+        try:
+            self.ts.add(port, target)
+        except Exception:
+            try:
+                self.remove_route(port)
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                pass
+            raise
+        self.data['routes'][str(port)]['pending'] = False
+        self.save()
+
+    def ready(self):
+        self.dns = self.ts.dns()
+        if 'hub_port' not in self.data:
+            status = self.ts.status()
+            port = next((p for p in [443, *range(8443, 8500)] if self.ts.target(status, p) is None), None)
+            if port is None:
+                raise RuntimeError('No free HTTPS port for the dashboard')
+            self.data['hub_port'] = port
+            self.save()
+        self.ensure_route(self.data['hub_port'], f'http://127.0.0.1:{self.port}')
+        self.error = ''
+
+    def stop(self, entry):
+        try:
+            if entry.get('external'):
+                self.remove_route(entry['external'])
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            pass  # Tombstone remains for the next reconciliation.
+        stop_process(entry)
+        child = self.children.pop(entry.get('pid'), None)
+        if child:
+            try:
+                child.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+        with self.lock:
+            self.data['previews'].pop(entry['id'], None)
+            self.save()
+
+    def publish(self, request):
+        self.ready()
+        cwd = str(Path(request.get('cwd') or os.getcwd()).resolve())
+        if not Path(cwd).is_dir():
+            raise ValueError('Project directory does not exist')
+        ttl = ttl_seconds(request.get('ttl', '24h'))
+        key = hashlib.sha256(cwd.encode()).hexdigest()[:12]
+        previous = self.data['previews'].get(key)
+        entry, child = None, None
+        attach = request['op'] == 'attach'
+        port = request.get('port')
+        if port is not None and not 1 <= int(port) <= 65535:
+            raise ValueError('Port must be 1..65535')
+        previous_alive = previous and (not previous.get('pid') or process_identity(previous['pid']) == previous.get('identity'))
+        if previous_alive and http_ok(previous['port']) and (not attach or port == previous['port']):
+            entry = dict(previous)
+            port = entry['port']
+        else:
+            if attach:
+                if not port or not http_ok(port):
+                    raise RuntimeError('No HTTP app is listening on that loopback port')
+            else:
+                argv = request.get('argv', [])
+                if not argv:
+                    raise ValueError('Provide the startup command after --, or attach --port PORT')
+                if previous:
+                    self.stop(previous)
+                    previous = None
+                if port is None:
+                    for candidate in range(3000, 4000):
+                        with socket.socket() as s:
+                            try:
+                                s.bind(('127.0.0.1', candidate))
+                                port = candidate
+                                break
+                            except OSError:
+                                continue
+                    if port is None:
+                        raise RuntimeError('No free local preview port')
+                    if not any('{port}' in arg for arg in argv):
+                        raise ValueError('Use {port} in the command, or specify --port')
+                with socket.socket() as probe:
+                    try:
+                        probe.bind(('127.0.0.1', port))
+                    except OSError:
+                        raise RuntimeError('Local port is in use; attach the known app instead') from None
+                env = {k: os.environ[k] for k in ('HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'TMPDIR', 'PATH') if k in os.environ}
+                env.update(PATH=request.get('path', env.get('PATH', '/usr/bin:/bin')),
+                           __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=self.dns)
+                private_dir(self.base / 'logs')
+                with (self.base / 'logs' / f'{key}.log').open('ab') as log:
+                    os.chmod(log.name, 0o600)
+                    child = subprocess.Popen([a.replace('{port}', str(port)) for a in argv], cwd=cwd, env=env,
+                                             stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+                entry = {'id': key, 'cwd': cwd, 'port': port, 'pid': child.pid, 'identity': process_identity(child.pid),
+                         'published_at': time.time(), 'expires_at': time.time() + ttl, 'ready': False}
+                self.children[child.pid] = child
+                self.put(entry)
+                deadline = time.monotonic() + 30
+                while child.poll() is None and time.monotonic() < deadline and not http_ok(port):
+                    time.sleep(.2)
+                if child.poll() is not None or not http_ok(port):
+                    self.stop(entry)
+                    raise RuntimeError(f'App did not start; check {self.base}/logs/{key}.log')
+            if entry is None:
+                entry = {'id': key, 'cwd': cwd, 'port': port}
+        try:
+            if not entry.get('external'):
+                status = self.ts.status()
+                entry['external'] = next((p for p in range(8443, 8500) if str(p) not in self.data['routes']
+                                          and self.ts.target(status, p) is None), None)
+                if entry['external'] is None:
+                    raise RuntimeError('No free HTTPS preview port')
+            self.ensure_route(entry['external'], f'http://127.0.0.1:{port or entry["port"]}')
+            entry.update(title=request.get('title') or entry.get('title') or Path(cwd).name,
+                         published_at=time.time(), expires_at=time.time() + ttl, ready=True, unhealthy_since=None)
+            self.put(entry)
+        except Exception:
+            if child:
+                self.stop(entry)
+            raise
+        if previous and previous.get('external') != entry['external']:
+            self.stop(previous)
+            self.put(entry)
+        return {'ok': True, 'url': f'https://{self.dns}:{entry["external"]}/', 'dashboard': self.hub_url()}
+
+    def tick(self):
+        referenced = {e.get('external') for e in self.entries()}
+        for port, owned in list(self.data['routes'].items()):
+            if owned.get('pending') or (int(port) != self.data.get('hub_port', 443) and int(port) not in referenced):
+                try:
+                    self.remove_route(int(port))
+                except (OSError, RuntimeError, subprocess.SubprocessError):
+                    pass
+        try:
+            self.ready()
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            self.error = str(error)[:240]
+        now = time.time()
+        for entry in self.entries():
+            dead = entry.get('pid') and process_identity(entry['pid']) != entry.get('identity')
+            if dead or entry['expires_at'] <= now or not entry.get('ready'):
+                self.stop(entry)
+                continue
+            healthy = http_ok(entry['port'])
+            if healthy:
+                try:
+                    self.ensure_route(entry['external'], f'http://127.0.0.1:{entry["port"]}')
+                except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                    self.error = str(error)[:240]
+            if not healthy and entry.get('unhealthy_since') and now - entry['unhealthy_since'] >= 60:
+                self.stop(entry)
+            elif healthy != (entry.get('unhealthy_since') is None):
+                entry['unhealthy_since'] = None if healthy else now
+                self.put(entry)
+
+    def dispatch(self, request):
+        op = request.get('op')
+        if op in ('up', 'attach'):
+            return self.publish(request)
+        if op in ('status', 'list', 'url'):
+            snap = self.snapshot()
+            if op == 'list':
+                return {'ok': True, **snap}
+            if op == 'url':
+                if not snap['hub_url']:
+                    raise RuntimeError(self.error or 'Tailscale is not ready')
+                return {'ok': True, 'url': snap['hub_url']}
+            key = hashlib.sha256(str(Path(request['cwd']).resolve()).encode()).hexdigest()[:12]
+            entry = next((e for e in snap['previews'] if e['id'] == key), None)
+            if not entry:
+                raise RuntimeError('No active preview for this project')
+            return {'ok': True, 'url': entry['url'], 'dashboard': snap['hub_url']}
+        if op in ('stop', 'shutdown'):
+            cwd = str(Path(request.get('cwd') or os.getcwd()).resolve())
+            for entry in self.entries():
+                if op == 'shutdown' or request.get('all') or entry['id'] == request.get('id') or (not request.get('id') and entry['cwd'] == cwd):
+                    self.stop(entry)
+            if op == 'shutdown':
+                for port in list(self.data['routes']):
+                    self.remove_route(int(port))
+                self.running = False
+            return {'ok': True, 'message': 'stopped'}
+        raise ValueError('Unknown operation')
+
+
+def control(request, base=None):
+    payload = json.dumps(request).encode() + b'\n'
+    if len(payload) > LIMIT:
+        raise ValueError('Request too large')
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.settimeout(90)
+        try:
+            sock.connect(str(Path(base or state_dir()) / 'control.sock'))
+        except OSError:
+            raise RuntimeError('Preview Hub is not running; use previewctl service install') from None
+        sock.sendall(payload)
+        with sock.makefile('rb') as reader:
+            response = reader.readline(LIMIT + 1)
+    if len(response) > LIMIT:
+        raise ValueError('Response too large')
+    return json.loads(response)
+
+
+def allowed_host(host, dns):
+    try:
+        return urlsplit('//' + host).hostname in ('localhost', '127.0.0.1', dns or 'localhost')
+    except ValueError:
+        return False
+
+
+def serve(hub):
+    class Admin(socketserver.StreamRequestHandler):
+        def handle(self):
+            self.connection.settimeout(5)
+            try:
+                raw = self.rfile.readline(LIMIT + 1)
+                if len(raw) > LIMIT:
+                    raise ValueError('Request too large')
+                request = json.loads(raw)
+                if not isinstance(request, dict):
+                    raise ValueError('Expected a JSON object')
+                response = hub.dispatch(request)
+            except Exception as error:
+                response = {'ok': False, 'error': str(error)[:240]}
+            try:
+                self.wfile.write(json.dumps(response).encode() + b'\n')
+            except OSError:
+                pass
+
+    class HTTP(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            if not allowed_host(self.headers.get('Host', ''), hub.dns) or (self.headers.get('Origin') and
+                    not allowed_host(urlsplit(self.headers['Origin']).netloc, hub.dns)):
+                self.send_error(403)
+                return
+            path = urlsplit(self.path).path
+            if path == '/':
+                body, kind = (ROOT / 'dashboard.html').read_bytes(), 'text/html; charset=utf-8'
+            elif path == '/api/previews':
+                body, kind = json.dumps(hub.snapshot()).encode(), 'application/json'
+            elif path == '/healthz':
+                body, kind = b'ok', 'text/plain'
+            else:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            for key, value in [('Content-Type', kind), ('Content-Length', str(len(body))), ('Cache-Control', 'no-store'),
+                               ('X-Content-Type-Options', 'nosniff'), ('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'")]:
+                self.send_header(key, value)
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except OSError:
+                pass
+
+    sock = hub.base / 'control.sock'
+    sock.unlink(missing_ok=True)  # Caller holds the exclusive daemon lock.
+    with ThreadingHTTPServer(('127.0.0.1', hub.port), HTTP) as http, socketserver.UnixStreamServer(str(sock), Admin) as admin:
+        sock.chmod(0o600)
+        admin.timeout = .5
+        threading.Thread(target=http.serve_forever, daemon=True).start()
+        due = 0
+        try:
+            while hub.running:
+                if time.monotonic() >= due:
+                    hub.tick()
+                    due = time.monotonic() + 15
+                admin.handle_request()
+        finally:
+            http.shutdown()
+            sock.unlink(missing_ok=True)
+
+
+def service_plan():
+    python, script, base = str(Path(sys.executable).resolve()), str(Path(__file__).resolve()), str(state_dir().resolve())
+    env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'PREVIEW_HUB_STATE_DIR': base}
+    if sys.platform == 'darwin':
+        path = Path.home() / 'Library/LaunchAgents/local.preview-hub.plist'
+        def xml(value):
+            if isinstance(value, dict):
+                return '<dict>' + ''.join('<key>' + html.escape(k) + '</key>' + xml(v) for k, v in value.items()) + '</dict>'
+            if isinstance(value, list):
+                return '<array>' + ''.join(xml(v) for v in value) + '</array>'
+            if isinstance(value, bool):
+                return '<true/>' if value else '<false/>'
+            tag = 'integer' if isinstance(value, int) else 'string'
+            return '<' + tag + '>' + html.escape(str(value)) + '</' + tag + '>'
+        content = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0">' + xml({
+            'Label': 'local.preview-hub', 'Comment': MARKER, 'ProgramArguments': [python, script, 'daemon'],
+            'EnvironmentVariables': env, 'RunAtLoad': True, 'KeepAlive': True, 'ThrottleInterval': 10,
+            'StandardOutPath': base + '/service.log', 'StandardErrorPath': base + '/service.log'}) + '</plist>'
+        domain = f'gui/{os.getuid()}'
+        start = [['launchctl', 'enable', domain + '/local.preview-hub'], ['launchctl', 'bootstrap', domain, str(path)]]
+        stop = [['launchctl', 'bootout', domain + '/local.preview-hub']]
+    elif sys.platform.startswith('linux'):
+        path = Path.home() / '.config/systemd/user/preview-hub.service'
+        def quote(value, executable=False):
+            value = value.replace('%', '%%')
+            return json.dumps(value.replace('$', '$$') if executable else value)
+        content = f'# {MARKER}\n[Unit]\nDescription=Preview Hub\n[Service]\n'
+        content += f'ExecStart={quote(python, True)} {quote(script, True)} daemon\n'
+        content += ''.join(f'Environment={quote(k + "=" + v)}\n' for k, v in env.items())
+        content += 'Restart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n'
+        start = [['systemctl', '--user', 'daemon-reload'], ['systemctl', '--user', 'enable', '--now', 'preview-hub.service']]
+        stop = [['systemctl', '--user', 'disable', '--now', 'preview-hub.service']]
+    else:
+        raise RuntimeError('Supported service managers: macOS launchd and Linux systemd --user')
+    return path, content, start, stop
+
+
+def service(action, dry):
+    path, content, start, stop = service_plan()
+    if dry:
+        return 'dry-run: ' + str(path) + '\n' + '\n'.join(shlex.join(c) for c in (start if action == 'install' else stop))
+    if path.exists() and MARKER not in path.read_text():
+        raise RuntimeError(f'Refusing to replace an unrelated service: {path}')
+    if action == 'install':
+        if path.exists():
+            raise RuntimeError('Service already exists; uninstall it before reinstalling')
+        private_dir(state_dir())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        path.chmod(0o600)
+        for command in start:
+            run(command)
+        return 'Preview Hub enabled' + ('; for boot before login: loginctl enable-linger "$USER"' if sys.platform.startswith('linux') else ' (starts after login)')
+    if not path.exists():
+        return 'Service is not installed'
+    if (state_dir() / 'control.sock').exists():
+        response = control({'op': 'shutdown'})
+        if not response.get('ok'):
+            raise RuntimeError(response['error'])
+    else:
+        with daemon_lock(state_dir()):
+            Hub().dispatch({'op': 'shutdown'})
+    for command in stop:
+        run(command)
+    path.unlink()
+    if sys.platform.startswith('linux'):
+        run(['systemctl', '--user', 'daemon-reload'])
+    return 'Preview Hub disabled; source and state retained'
+
+
+def main():
+    parser = argparse.ArgumentParser(prog='previewctl')
+    commands = parser.add_subparsers(dest='command', required=True)
+    for name in ('status', 'up', 'attach', 'stop', 'list', 'url'):
+        p = commands.add_parser(name)
+        p.add_argument('--json', action='store_true')
+        if name in ('status', 'up', 'attach', 'stop'):
+            p.add_argument('--cwd', default=os.getcwd())
+        if name in ('up', 'attach'):
+            p.add_argument('--title')
+            p.add_argument('--port', type=int, required=name == 'attach')
+            p.add_argument('--ttl', default='24h')
+        if name == 'up':
+            p.add_argument('argv', nargs=argparse.REMAINDER)
+        if name == 'stop':
+            p.add_argument('id', nargs='?')
+            p.add_argument('--all', action='store_true')
+    commands.add_parser('doctor')
+    d = commands.add_parser('daemon')
+    d.add_argument('--port', type=int, default=8766)
+    s = commands.add_parser('service')
+    s.add_argument('action', choices=('install', 'uninstall'))
+    s.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+    try:
+        if args.command == 'daemon':
+            with daemon_lock(state_dir()):
+                hub = Hub(port=args.port)
+                def stop_signal(*_):
+                    hub.running = False
+                signal.signal(signal.SIGTERM, stop_signal)
+                signal.signal(signal.SIGINT, stop_signal)
+                serve(hub)
+            return 0
+        if args.command == 'service':
+            print(service(args.action, args.dry_run))
+            return 0
+        if args.command == 'doctor':
+            print('Tailscale: ' + Tailscale().dns())
+            print('Hub: ' + ('running' if (state_dir() / 'control.sock').exists() else 'not running'))
+            return 0
+        request = vars(args).copy()
+        request['op'] = request.pop('command')
+        request.pop('json', None)
+        if request.get('argv', [])[:1] == ['--']:
+            request['argv'] = request['argv'][1:]
+        if request['op'] == 'up':
+            request['path'] = os.environ.get('PATH', '/usr/bin:/bin')
+        response = control(request)
+        if args.json:
+            print(json.dumps(response, separators=(',', ':')))
+        elif not response.get('ok'):
+            print(response['error'], file=sys.stderr)
+        elif 'url' in response:
+            print(response['url'])
+        elif 'previews' in response:
+            print('\n'.join(f'{e["id"]} {e["title"]} {e["url"]}' for e in response['previews']) or 'No active previews')
+        else:
+            print(response.get('message', 'ok'))
+        return 0 if response.get('ok') else 1
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        if getattr(args, 'json', False):
+            print(json.dumps({'ok': False, 'error': str(error)[:240]}))
+        else:
+            print(str(error)[:240], file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

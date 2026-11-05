@@ -1,0 +1,4 @@
+results/fake-*/
+results/_unit_*/
+__pycache__/
+*.pyc

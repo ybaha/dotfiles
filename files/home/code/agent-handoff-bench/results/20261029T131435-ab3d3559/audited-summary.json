@@ -1,0 +1,64 @@
+{
+  "run_id": "20261029T131435-ab3d3559",
+  "raw_sha256": "82af1b505eea44103c08e43da4ee6cfe9a906395b96f5e185e2b6a72b0994b0f",
+  "calls": 55,
+  "producer_calls": 10,
+  "receiver_calls": 45,
+  "training_trials": 30,
+  "holdout_trials": 0,
+  "usage": {
+    "input": 23181,
+    "output": 6022,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 29203
+  },
+  "methods": [
+    {
+      "strategy": "full_evidence",
+      "trials": 6,
+      "legacy_passes": 6,
+      "receiver_tokens": 2680,
+      "unique_sender_tokens": 0,
+      "actual_used_tokens": 2680,
+      "per_handoff_tokens": 446.6666666666667
+    },
+    {
+      "strategy": "hybrid_envelope",
+      "trials": 6,
+      "legacy_passes": 6,
+      "receiver_tokens": 7049,
+      "unique_sender_tokens": 2288,
+      "actual_used_tokens": 9337,
+      "per_handoff_tokens": 1937.5
+    },
+    {
+      "strategy": "reference_only",
+      "trials": 6,
+      "legacy_passes": 3,
+      "receiver_tokens": 4576,
+      "unique_sender_tokens": 0,
+      "actual_used_tokens": 4576,
+      "per_handoff_tokens": 762.6666666666666
+    },
+    {
+      "strategy": "structured_envelope",
+      "trials": 6,
+      "legacy_passes": 5,
+      "receiver_tokens": 4979,
+      "unique_sender_tokens": 1723,
+      "actual_used_tokens": 6702,
+      "per_handoff_tokens": 1404.1666666666667
+    },
+    {
+      "strategy": "summary_200w",
+      "trials": 6,
+      "legacy_passes": 2,
+      "receiver_tokens": 3799,
+      "unique_sender_tokens": 1561,
+      "actual_used_tokens": 5360,
+      "per_handoff_tokens": 1153.5
+    }
+  ],
+  "quality_label": "legacy evaluator, provisional; responses not retained, cannot rescore retroactively"
+}

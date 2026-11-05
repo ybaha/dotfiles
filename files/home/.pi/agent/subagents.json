@@ -1,0 +1,9 @@
+{
+  "maxConcurrent": 2,
+  "backgroundByDefault": true,
+  "scopeModels": true,
+  "disableDefaultAgents": true,
+  "fallbackSubagent": "none",
+  "maxSubagentDepth": 1,
+  "workflowsEnabled": false
+}

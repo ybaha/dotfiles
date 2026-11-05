@@ -1,0 +1,11 @@
+# Load after config.ghostty from the Mac's native Ghostty config wrapper.
+# iTerm's left/right Option settings are both Normal, not Esc+.
+macos-option-as-alt = false
+
+keybind = super+left=text:\x01
+keybind = super+right=text:\x05
+keybind = super+backspace=text:\x15
+keybind = alt+backspace=text:\x1b\x7f
+keybind = alt+delete=esc:d
+# Match iTerm's forward-delete binding (Ctrl-D), not Backspace.
+keybind = delete=text:\x04

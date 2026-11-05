@@ -1,0 +1,5 @@
+# GUI applications for a macOS workstation only.
+# install.sh --packages never applies this manifest on Linux.
+
+cask "iterm2"
+cask "zed"

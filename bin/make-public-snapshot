@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Build a single-commit, leak-checked copy of this repo for publishing.
+#
+#   bin/make-public-snapshot <new-dir>
+#
+# Only committed files are exported (git archive), so ignored/local files cannot leak,
+# and none of this repo's history is carried over. The commit uses your GitHub noreply
+# address. The result is scanned with gitleaks and against ~/.config/pi-agent/public-blocklist.txt
+# (one string per line that must never be published; kept out of the repo on purpose).
+# On any finding the snapshot is deleted. Nothing is pushed; publish it yourself.
+set -euo pipefail
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+out=${1:?usage: bin/make-public-snapshot <new-dir>}
+blocklist=${PUBLIC_BLOCKLIST:-$HOME/.config/pi-agent/public-blocklist.txt}
+exclude=(docs/plans)
+
+[[ -r $blocklist ]] || { echo "missing $blocklist (strings that must never be published, one per line)" >&2; exit 1; }
+command -v gitleaks >/dev/null || { echo "gitleaks is required" >&2; exit 1; }
+command -v gh >/dev/null || { echo "gh is required (for the noreply identity)" >&2; exit 1; }
+[[ ! -e $out || -z $(ls -A "$out") ]] || { echo "$out exists and is not empty" >&2; exit 1; }
+git -C "$repo_dir" diff --quiet HEAD || echo "warning: uncommitted changes are not included" >&2
+
+login=$(gh api user --jq .login)
+email="$(gh api user --jq .id)+$login@users.noreply.github.com"
+
+mkdir -p "$out"
+git -C "$repo_dir" archive HEAD | tar -x -C "$out"
+for path in "${exclude[@]}"; do rm -rf "${out:?}/$path"; done
+
+git -C "$out" init -q -b main
+git -C "$out" add -f -A
+GIT_AUTHOR_NAME=$login GIT_AUTHOR_EMAIL=$email GIT_COMMITTER_NAME=$login GIT_COMMITTER_EMAIL=$email \
+  git -C "$out" -c commit.gpgsign=false commit -q -m "Initial public snapshot"
+
+patterns=$(mktemp)
+dump=$(mktemp)
+trap 'rm -f "$patterns" "$dump"' EXIT
+grep -v '^[[:space:]]*$' "$blocklist" >"$patterns"
+
+fail() { echo "snapshot rejected: $1" >&2; rm -rf "$out"; exit 1; }
+
+gitleaks git --no-banner --redact "$out" >/dev/null 2>&1 || fail "gitleaks found a secret"
+# Scan a file, not a pipe: with pipefail, grep -q exiting early would hide a match behind SIGPIPE.
+git -C "$out" log --all -p --format=fuller >"$dump"
+if grep -qFf "$patterns" "$dump"; then
+  fail "a blocklisted string appears in the tree or commit metadata"
+fi
+[[ $(git -C "$out" rev-list --all --count) == 1 ]] || fail "history is not a single commit"
+
+echo "ok  $out: $(git -C "$out" ls-files | wc -l | tr -d ' ') files, 1 commit by $login, gitleaks + blocklist clean"
+echo "publish: gh repo create <name> --public --source \"$out\" --push"

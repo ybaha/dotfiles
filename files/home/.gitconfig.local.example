@@ -1,0 +1,12 @@
+# Local Git identity and credential helpers. This file is never committed.
+[user]
+	name = Your Name
+	email = you@example.com
+
+# If GitHub CLI is installed and authenticated, uncomment and adjust this.
+# [credential "https://github.com"]
+# 	helper =
+# 	helper = !gh auth git-credential
+# [credential "https://gist.github.com"]
+# 	helper =
+# 	helper = !gh auth git-credential

@@ -1,0 +1,59 @@
+#!/usr/bin/env node
+// Run one Browser Use Pi task: bu-run "task" [--browser chromium|chrome|cloud] [--headless]
+import { pathToFileURL } from 'node:url';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+process.env.DO_NOT_TRACK ??= '1';
+
+const home = process.env.BU_PI_HOME ?? join(homedir(), '.local/share/browser-use-pi');
+const words = [];
+let kind = process.env.BU_BROWSER ?? 'chromium';
+let headless = false;
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--browser') kind = argv[++i];
+  else if (argv[i] === '--headless') headless = true;
+  else words.push(argv[i]);
+}
+const task = words.join(' ').trim();
+if (!task) {
+  console.error('usage: bu-run "task" [--browser chromium|chrome|cloud] [--headless]');
+  process.exit(2);
+}
+
+let sdk;
+try {
+  sdk = await import(pathToFileURL(join(home, 'node_modules/@browser_use/pi/dist/index.js')).href);
+} catch {
+  console.error('Browser Use Pi is not installed. Run ~/.pi/agent/skills/browser-use/scripts/setup');
+  process.exit(1);
+}
+const { Browser, BrowserUse } = sdk;
+
+const browser =
+  kind === 'cloud'
+    ? Browser.cloud({ apiKey: process.env.BROWSER_USE_API_KEY })
+    : kind === 'chrome'
+      ? Browser.chrome()
+      : Browser.chromium({ profileDir: join(home, 'profile'), headless });
+
+const agent = await BrowserUse.create({
+  model: process.env.BU_MODEL ?? 'openrouter/openai/gpt-5.6-luna',
+  reasoning: process.env.BU_REASONING ?? 'medium',
+  browser,
+  workspace: join(home, 'work'),
+  log: 'pretty',
+  telemetry: false,
+});
+try {
+  const result = await agent.run(task, {
+    maxSteps: Number(process.env.BU_MAX_STEPS ?? 40),
+    timeoutMs: Number(process.env.BU_TIMEOUT_MS ?? 300_000),
+    maxCostUsd: Number(process.env.BU_MAX_COST_USD ?? 1),
+  });
+  console.log(`\nstatus: ${result.status}\n${result.status === 'completed' ? result.text : (result.partial?.value ?? result.text)}`);
+  process.exitCode = result.status === 'completed' ? 0 : 1;
+} finally {
+  await agent.close();
+}

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+skills_dir="$repo_dir/files/home/.claude/skills"
+
+link_if_present() {
+  local name source target
+  name=$1
+  source=$2
+  target="$skills_dir/$name"
+  if [[ ! -e "$source" ]]; then
+    echo "skip       $name (missing $source)"
+    return
+  fi
+  rm -rf "$target"
+  ln -s "$source" "$target"
+  echo "link       $target -> $source"
+}
+
+# These are project-owned skills rather than dotfile-owned sources. Keep their
+# implementation in their own repositories and make the association explicit.
+link_if_present ad-machine "$HOME/code/ad-machine"
+link_if_present foreman "$HOME/code/foreman"
+link_if_present app-store-aso "$HOME/.agents/skills/app-store-aso"

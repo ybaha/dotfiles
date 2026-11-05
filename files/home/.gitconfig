@@ -1,0 +1,18 @@
+# Managed by ~/code/dotfiles. Keep identity and host-specific credentials in
+# ~/.gitconfig.local, which is intentionally not versioned.
+[include]
+	path = ~/.gitconfig.local
+
+[core]
+	ignorecase = false
+
+[lfs "customtransfer.xet"]
+	path = git-xet
+	args = transfer
+	concurrent = true
+
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true

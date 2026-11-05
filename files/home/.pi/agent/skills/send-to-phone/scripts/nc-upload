@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Upload files to the Nextcloud AI-Inbox folder (owned by baha, shared to user "agent") and print a link per file.
+set -euo pipefail
+
+# Network values live in an untracked file; an already-set NC_AGENT_URL wins.
+LOCAL_ENV="${PI_AGENT_LOCAL_ENV:-$HOME/.config/pi-agent/local.env}"
+if [[ -z ${NC_AGENT_URL:-} && -r $LOCAL_ENV ]]; then
+  # shellcheck disable=SC1090
+  source "$LOCAL_ENV"
+fi
+BASE_URL="${NC_AGENT_URL:-}"
+NC_USER="agent"
+INBOX="AI-Inbox"
+
+usage() {
+  echo "usage: nc-upload -d PROJECT/TOPIC[/SUBFOLDER...] FILE..." >&2
+  echo "Uploads each FILE into Nextcloud $INBOX/PROJECT/TOPIC, overwriting same-named files." >&2
+  echo "Folder names must use lowercase letters, numbers, and single hyphens (for example karardex/marketing)." >&2
+  exit 2
+}
+
+subdir=""
+while getopts "d:h" opt; do
+  case $opt in
+    d) subdir=$OPTARG ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND - 1))
+(( $# > 0 )) || usage
+
+# Require project/topic before looking up credentials or touching Nextcloud.
+export LC_ALL=C
+folder='[a-z0-9]+(-[a-z0-9]+)*'
+if [[ ! $subdir =~ ^$folder/$folder(/$folder)*$ ]]; then
+  echo "nc-upload: destination must be project/topic[/subfolder...] in lowercase kebab-case" >&2
+  usage
+fi
+for file in "$@"; do
+  [[ -f $file ]] || { echo "nc-upload: not a file: $file" >&2; exit 1; }
+done
+
+token=${NC_AGENT_TOKEN:-}
+if [[ -z $token ]]; then
+  token=$(security find-generic-password -s nextcloud-agent -a "$NC_USER" -w 2>/dev/null) ||
+    { echo "nc-upload: no app password in Keychain service nextcloud-agent; see 'New machine' in SKILL.md" >&2; exit 1; }
+fi
+
+urlencode_path() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"; }
+# Credentials go through a config fd so the token never shows up in the process list.
+nc_curl() { curl -sS -m 300 -K <(printf 'user = "%s:%s"\n' "$NC_USER" "$token") "$@"; }
+
+[[ -n $BASE_URL ]] || { echo "nc-upload: NC_AGENT_URL is not set; copy local.env.example to $LOCAL_ENV and fill it in" >&2; exit 1; }
+dav_root="$BASE_URL/remote.php/dav/files/$NC_USER"
+target="$INBOX/$subdir"
+
+path=$INBOX
+IFS=/ read -ra parts <<<"$subdir"
+for part in "${parts[@]}"; do
+  path+="/$part"
+  code=$(nc_curl -o /dev/null -w '%{http_code}' -X MKCOL "$dav_root/$(urlencode_path "$path")")
+  [[ $code == 201 || $code == 405 ]] || { echo "nc-upload: creating $path failed (HTTP $code)" >&2; exit 1; }
+done
+
+headers=$(mktemp)
+trap 'rm -f "$headers"' EXIT
+
+for file in "$@"; do
+  name=$(basename "$file")
+  code=$(nc_curl -o /dev/null -D "$headers" -w '%{http_code}' -T "$file" "$dav_root/$(urlencode_path "$target/$name")")
+  [[ $code == 201 || $code == 204 ]] || { echo "nc-upload: uploading $file failed (HTTP $code)" >&2; exit 1; }
+  fileid=$(awk 'tolower($1) == "oc-fileid:" && match($2, /^[0-9]+/) { print substr($2, RSTART, RLENGTH) + 0 }' "$headers")
+  echo "$target/$name  ${fileid:+$BASE_URL/index.php/f/$fileid}"
+done

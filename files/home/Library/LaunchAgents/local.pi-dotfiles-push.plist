@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>local.pi-dotfiles-push</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/baha/.local/bin/pi-dotfiles-push</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>19</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardOutPath</key>
+	<string>/Users/baha/.local/state/pi-dotfiles-push.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/baha/.local/state/pi-dotfiles-push.err.log</string>
+</dict>
+</plist>

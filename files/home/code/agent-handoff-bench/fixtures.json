@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "public_artifacts": {
+    "note-current-2026-10": "Ops memo (2026-10-12): Checkout worker retry policy was updated last sprint. See config-snippet for authoritative values. Do not use the old draft note.",
+    "note-draft-obsolete": "DRAFT (superseded): checkout retries every 10 seconds fixed interval.",
+    "config-snippet": "checkout_worker:\n  retry:\n    initial_backoff_seconds: 30\n    multiplier: 2\n    max_backoff_seconds: 300\n    max_attempts: 8",
+    "machine-v1": "{\n  \"initial\": \"queued\",\n  \"transitions\": [\n    {\"from\": \"queued\", \"event\": \"dispatch\", \"to\": \"running\"},\n    {\"from\": \"running\", \"event\": \"success\", \"to\": \"done\"},\n    {\"from\": \"running\", \"event\": \"fail\", \"to\": \"failed\"},\n    {\"from\": \"failed\", \"event\": \"retry\", \"to\": \"queued\"}\n  ]\n}",
+    "task-feature-spec": "Add operator cancel: from state queued only, event cancel -> cancelled. Preserve all existing transitions. Output JSON state machine with same schema as machine-v1.",
+    "run-timeline-4421": "Job checkout-sync-4421 started 2026-10-28T14:00Z. Agent worker finished code push 14:42Z. CI hook triggered 14:43Z.",
+    "log-ci-4421": "[14:44:12] checkout-sync-4421 integration_tests/test_payment_idempotency.py FAILED\nAssertionError: duplicate charge id dc-991\n[14:44:40] suite exit code 1",
+    "dashboard-stale-4421": "Dashboard snapshot 14:41Z (pre-CI): job checkout-sync-4421 status GREEN all checks passed.",
+    "worker-status-4421": "Worker report 14:45Z: checkout-sync-4421 agent idle awaiting human triage; automated fix loop stopped after test failure."
+  },
+  "training_cases": [
+    {
+      "id": "case-quick-config",
+      "type": "quick_question",
+      "task": "What is the effective initial retry backoff (seconds) for the checkout worker? Reply with evidence-backed JSON answer schema quick_answer.",
+      "artifact_ids": ["note-current-2026-10", "note-draft-obsolete", "config-snippet"],
+      "answer_schema": "quick_answer",
+      "producer_source_ids": ["note-current-2026-10", "note-draft-obsolete", "config-snippet"]
+    },
+    {
+      "id": "case-feature-cancel",
+      "type": "feature_table",
+      "task": "Implement the cancel transition described in task-feature-spec. Respond with JSON containing key machine_table (full table JSON).",
+      "artifact_ids": ["task-feature-spec", "machine-v1"],
+      "answer_schema": "feature_table",
+      "producer_source_ids": ["task-feature-spec", "machine-v1"]
+    },
+    {
+      "id": "case-longrun-4421",
+      "type": "long_running_result",
+      "task": "Summarize outcome for handoff receiver: correct job identity, test vs dashboard status, and whether human is needed. Use JSON schema longrun_handoff.",
+      "artifact_ids": ["run-timeline-4421", "log-ci-4421", "dashboard-stale-4421", "worker-status-4421"],
+      "answer_schema": "longrun_handoff",
+      "producer_source_ids": ["run-timeline-4421", "log-ci-4421", "dashboard-stale-4421", "worker-status-4421"]
+    }
+  ],
+  "holdout_cases": [
+    {
+      "id": "case-quick-config-ho",
+      "type": "quick_question",
+      "task": "What is the maximum retry backoff cap (seconds) for the checkout worker? Evidence-backed JSON quick_answer.",
+      "artifact_ids": ["note-current-2026-10", "note-draft-obsolete", "config-snippet"],
+      "answer_schema": "quick_answer",
+      "producer_source_ids": ["note-current-2026-10", "note-draft-obsolete", "config-snippet"]
+    },
+    {
+      "id": "case-feature-pause-ho",
+      "type": "feature_table",
+      "task": "Add paused state: from running, event pause -> paused; from paused, event resume -> running. Preserve all existing machine-v1 transitions. Output machine_table JSON.",
+      "artifact_ids": ["task-feature-spec", "machine-v1"],
+      "answer_schema": "feature_table",
+      "producer_source_ids": ["task-feature-spec", "machine-v1"]
+    },
+    {
+      "id": "case-longrun-4421-ho",
+      "type": "long_running_result",
+      "task": "For job checkout-sync-4421: name failing test file, state if agent is idle, and whether dashboard is stale. JSON longrun_handoff.",
+      "artifact_ids": ["run-timeline-4421", "log-ci-4421", "dashboard-stale-4421", "worker-status-4421"],
+      "answer_schema": "longrun_handoff",
+      "producer_source_ids": ["run-timeline-4421", "log-ci-4421", "dashboard-stale-4421", "worker-status-4421"]
+    }
+  ],
+  "gold": {
+    "case-quick-config": {
+      "required_artifact_refs": ["config-snippet"],
+      "forbidden_values": ["10"],
+      "numeric_answer": 30
+    },
+    "case-quick-config-ho": {
+      "required_artifact_refs": ["config-snippet"],
+      "numeric_answer": 300
+    },
+    "case-feature-cancel": {
+      "required_transitions": [{"from": "queued", "event": "cancel", "to": "cancelled"}],
+      "preserve_from": "machine-v1",
+      "forbidden_transitions": [{"from": "running", "event": "cancel", "to": "cancelled"}]
+    },
+    "case-feature-pause-ho": {
+      "required_transitions": [
+        {"from": "running", "event": "pause", "to": "paused"},
+        {"from": "paused", "event": "resume", "to": "running"}
+      ],
+      "preserve_from": "machine-v1"
+    },
+    "case-longrun-4421": {
+      "job_id": "checkout-sync-4421",
+      "tests_failed": true,
+      "dashboard_stale": true,
+      "needs_human": true,
+      "agent_idle": true,
+      "required_artifact_refs": ["log-ci-4421", "dashboard-stale-4421"]
+    },
+    "case-longrun-4421-ho": {
+      "job_id": "checkout-sync-4421",
+      "failing_test_contains": "test_payment_idempotency",
+      "agent_idle": true,
+      "dashboard_stale": true
+    }
+  },
+  "strategies": ["full_evidence", "summary_200w", "structured_envelope", "reference_only", "hybrid_envelope"],
+  "receiver_repeats": 2
+}

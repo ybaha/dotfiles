@@ -1,0 +1,41 @@
+# Local-only shell configuration
+files/home/.config/zsh/local.zsh
+files/home/.gitconfig.local
+files/home/.config/pi-agent/local.env
+
+# Project-owned skill links are generated locally by bin/link-external-skills.
+files/home/.claude/skills/ad-machine
+files/home/.claude/skills/foreman
+files/home/.claude/skills/app-store-aso
+
+# Never version credentials, sessions, histories, generated caches, or databases.
+**/.DS_Store
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.log
+**/*.sqlite
+**/*.sqlite-*
+**/*.mdb/
+**/.cache/
+**/node_modules/
+**/auth.json
+**/hosts.yml
+**/credentials.json
+**/*token*
+**/*secret*
+**/.env*
+
+# Agent runtime state and machine-generated integrations
+files/home/.pi/agent/extensions/herdr-agent-state.ts
+files/home/.pi/agent/auth.json
+files/home/.pi/agent/sessions/
+files/home/.pi/agent/missions/
+files/home/.pi/agent/state/
+files/home/.pi/agent/run-history.jsonl
+files/home/.claude/.credentials.json
+files/home/.claude/sessions/
+files/home/.claude/cache/
+
+# Local trash for synced Claude skills
+files/home/.claude/skills/.trash/

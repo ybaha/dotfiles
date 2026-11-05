@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${PI_CHIEF_ROOT:-$HOME/.pi/agent/chief-of-staff}"
+cli() { exec node --disable-warning=ExperimentalWarning "$ROOT/cli.ts" "$@"; }
+
+case "${1:-}" in
+	token)
+		# Read the token here so it never appears in argv or shell history.
+		token=
+		if [ -t 0 ]; then read -rsp "Telegram bot token (hidden): " token || true; echo; else read -r token || true; fi
+		printf '%s' "$token" | cli token ;;
+	config | ping | telegram | status | memory | help | -h | --help) cli "$@" ;;
+	*) exec pi --chief "$@" ;;
+esac

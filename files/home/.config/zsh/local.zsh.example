@@ -1,0 +1,4 @@
+# Machine-specific PATH entries and non-secret environment values go here.
+# Do not commit local.zsh.
+# export ANDROID_HOME="$HOME/Library/Android/sdk"
+# path_prepend "/opt/homebrew/opt/openjdk@21/bin"

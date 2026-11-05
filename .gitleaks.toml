@@ -1,0 +1,8 @@
+title = "dotfiles gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake bot tokens used as test fixtures"
+paths = ['''files/home/\.pi/agent/chief-of-staff/test/''']

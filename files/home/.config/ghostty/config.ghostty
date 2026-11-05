@@ -1,0 +1,53 @@
+# Migrated from the iTerm2 Default profile. Shared macOS/Linux appearance.
+font-family = Cascadia Code
+font-size = 14
+
+background = #000000
+foreground = #bbbbbb
+bold-color = #ffffff
+selection-background = #b5d5ff
+selection-foreground = #000000
+cursor-color = #bbbbbb
+cursor-text = #ffffff
+
+palette = 0=#000000
+palette = 1=#bb0000
+palette = 2=#00bb00
+palette = 3=#bbbb00
+palette = 4=#0000bb
+palette = 5=#bb00bb
+palette = 6=#00bbbb
+palette = 7=#bbbbbb
+palette = 8=#555555
+palette = 9=#ff5555
+palette = 10=#55ff55
+palette = 11=#ffff55
+palette = 12=#5555ff
+palette = 13=#ff55ff
+palette = 14=#55ffff
+palette = 15=#ffffff
+
+# iTerm transparency is inverted: 1 - 0.0978424202.
+background-opacity = 0.902158
+# Blur scales differ; 21 is a starting point, not a visual equivalence.
+background-blur = 21
+
+cursor-style = block
+cursor-style-blink = false
+# Keep integration, but don't let it replace the block cursor at the prompt.
+shell-integration-features = no-cursor
+
+window-width = 80
+window-height = 25
+# iTerm has a 1000-line limit; Ghostty measures bytes, so this is approximate.
+scrollback-limit = 1000000
+
+# Ghostty has no independent inactive-split background color.
+# Disable its whole-pane overlay rather than tinting the text.
+unfocused-split-opacity = 1
+split-divider-color = #212228
+
+keybind = alt+left=esc:b
+keybind = alt+right=esc:f
+# Match iTerm's global Shift-Return mapping to a literal newline.
+keybind = shift+enter=text:\n

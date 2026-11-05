@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Previews</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#10151b;color:#e9edf2;--muted:#97a4b4;--accent:#a5e4be}*{box-sizing:border-box}body{max-width:780px;margin:auto;padding:48px 22px}header{margin-bottom:32px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:var(--accent)}h1{font-size:clamp(32px,7vw,48px);letter-spacing:-.05em;margin:10px 0}#summary,.details{color:var(--muted);font-size:14px;line-height:1.6}#address{overflow-wrap:anywhere}#notice{color:#f3bd82;white-space:pre-wrap}article{padding:24px;margin:14px 0;background:#19212b;border:1px solid #303a48;border-radius:16px;display:flex;gap:20px;align-items:center;justify-content:space-between}article:first-child{border-color:#628d74}h2{font-size:18px;overflow-wrap:anywhere;margin:4px 0}.new{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}a{background:var(--accent);color:#10281a;border-radius:9px;padding:11px 17px;text-decoration:none;font-size:14px;font-weight:650;flex-shrink:0}a:focus-visible{outline:3px solid white;outline-offset:4px}.empty{padding:42px 0;color:var(--muted)}footer{font-size:12px;color:var(--muted);margin-top:32px}@media(max-width:420px){body{padding:30px 16px}article{padding:18px;gap:10px}a{padding:10px 12px}}
+</style>
+<header><div class="eyebrow">Your tailnet · HTTPS</div><h1>Work in preview.</h1><div id="summary" role="status">Connecting…</div><div class="details" id="address"></div></header>
+<p id="notice" role="status"></p><main id="previews"></main><footer>Newest published first · previews expire 24 hours after publication by default.</footer>
+<script>
+const list=document.querySelector('#previews'),notice=document.querySelector('#notice');
+function node(tag,text,cls){const n=document.createElement(tag);n.textContent=text;if(cls)n.className=cls;return n}
+function age(seconds){return seconds<60?'just now':seconds<3600?Math.floor(seconds/60)+'m':seconds<86400?Math.floor(seconds/3600)+'h':Math.floor(seconds/86400)+'d'}
+async function refresh(){
+ if(document.hidden)return;
+ try{
+  const response=await fetch('/api/previews',{cache:'no-store'});if(!response.ok)throw Error('unavailable');
+  const data=await response.json(),now=Date.now()/1000;
+  document.querySelector('#summary').textContent=data.previews.length+' active preview'+(data.previews.length===1?'':'s');
+  document.querySelector('#address').textContent=data.hub_url||'';notice.textContent=data.error||'';
+  list.replaceChildren();
+  if(!data.previews.length)list.append(node('p','Nothing open yet. Ask an agent to /preview.','empty'));
+  data.previews.forEach((p,i)=>{
+   const card=node('article',''),info=node('div','');if(!i)info.append(node('span','Latest','new'));
+   info.append(node('h2',p.title),node('div','Published '+age(now-p.published_at)+' · expires in '+age(Math.max(0,p.expires_at-now)), 'details'));
+   const link=node('a','Open preview');const url=new URL(p.url);if(url.protocol!=='https:')throw Error('invalid preview URL');
+   link.href=url.href;link.rel='noopener';link.setAttribute('aria-label','Open '+p.title);card.append(info,link);list.append(card);
+  });
+ }catch(error){notice.textContent='Hub disconnected. Retrying automatically…';list.replaceChildren()}
+}
+refresh();setInterval(refresh,10000);document.addEventListener('visibilitychange',refresh);
+</script>
+</html>

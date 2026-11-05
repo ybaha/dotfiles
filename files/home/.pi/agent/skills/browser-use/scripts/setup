@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Install the pinned Browser Use Pi SDK outside the repo. Safe to re-run.
+set -euo pipefail
+VERSION="0.1.0"
+DIR="${BU_PI_HOME:-$HOME/.local/share/browser-use-pi}"
+mkdir -p "$DIR"
+[[ -f "$DIR/package.json" ]] || echo '{"name":"bu-pi-local","private":true,"type":"module"}' > "$DIR/package.json"
+npm install --prefix "$DIR" --no-audit --no-fund "@browser_use/pi@$VERSION"
+echo "Installed @browser_use/pi@$VERSION in $DIR"

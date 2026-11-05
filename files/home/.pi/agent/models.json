@@ -1,0 +1,57 @@
+{
+  "$schema": "https://pi.dev/schemas/models.json",
+  "providers": {
+    "openai-codex": {
+      "modelOverrides": {
+        "gpt-6.1-sol": {
+          "contextWindow": 872000
+        },
+        "gpt-6-luna": {
+          "contextWindow": 872000
+        },
+        "gpt-6-astra": {
+          "contextWindow": 872000
+        }
+      }
+    },
+    "claude-bridge": {
+      "modelOverrides": {
+        "claude-opus-5-5": {
+          "contextWindow": 1000000
+        },
+        "claude-sonnet-5-5": {
+          "contextWindow": 1000000
+        }
+      }
+    },
+    "cursor-ide": {
+      "name": "Cursor IDE proxy",
+      "baseUrl": "http://127.0.0.1:8787/v1",
+      "api": "openai-completions",
+      "apiKey": "sk-local",
+      "models": [
+        {
+          "id": "composer-2.5",
+          "name": "Composer 2.5 (Cursor IDE)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 200000,
+          "maxTokens": 32768,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsStore": false,
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": true,
+            "maxTokensField": "max_completion_tokens",
+            "supportsUsageInStreaming": true
+          }
+        }
+      ]
+    }
+  }
+}

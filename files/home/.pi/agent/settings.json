@@ -1,0 +1,41 @@
+{
+  "$schema": "https://pi.dev/schemas/settings.json",
+  "defaultTools": [
+    "+codemode"
+  ],
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-6.1-sol",
+  "defaultThinkingLevel": "high",
+  "enableSkillCommands": true,
+  "theme": "dark",
+  "skills": [
+    "~/.pi/agent/skills/send-to-phone",
+    "~/.pi/agent/skills/wait-what"
+  ],
+  "enabledModels": [
+    "claude-bridge/claude-opus-5-5",
+    "claude-bridge/claude-sonnet-5-5",
+    "claude-bridge/claude-haiku-5-5",
+    "openai-codex/gpt-6.1-sol",
+    "openai-codex/gpt-6-luna",
+    "openai-codex/gpt-6-astra",
+    "minimax/MiniMax-M3.1-Flash",
+    "cursor-ide/composer-2.5"
+  ],
+  "packages": [
+    "npm:pi-claude-bridge",
+    "npm:@tintinweb/pi-subagents@0.21.0"
+  ],
+  "steeringMode": "one-at-a-time",
+  "followUpMode": "one-at-a-time",
+  "transport": "auto",
+  "defaultProjectTrust": "ask",
+  "enableInstallTelemetry": true,
+  "lastChangelogVersion": "1.5.0",
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:@tintinweb/pi-subagents@0.21.0\",\"scope\":\"user\"}": "0.21.0"
+  },
+  "extensions": [
+    "-extensions/herdr-agent-state.ts"
+  ]
+}
