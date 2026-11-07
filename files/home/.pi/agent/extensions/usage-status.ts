@@ -61,7 +61,7 @@ function quotaColour(theme: any, remaining: number, text: string): string {
 	return theme.fg("success", text);
 }
 
-function staleColour(theme: any, text: string): string {
+function staleColour(theme: any, _remaining: number, text: string): string {
 	return theme.fg("warning", text);
 }
 
@@ -137,7 +137,7 @@ export default function (pi: ExtensionAPI) {
 					const compact = width < 150;
 					const codex = quota.codex
 						? compact
-							? (isStale(quota.codex) ? staleColour : quotaColour)(theme, quota.codex.primaryLeft, `${quota.codex.primaryLeft}%`) + theme.fg("dim", "/") + (isStale(quota.codex) ? staleColour : quotaColour)(theme, quota.codex.weeklyLeft, `${quota.codex.weeklyLeft}%`)
+							? theme.fg("dim", "Codex 5h ") + (isStale(quota.codex) ? staleColour : quotaColour)(theme, quota.codex.primaryLeft, `${quota.codex.primaryLeft}%`) + theme.fg("dim", "/7d ") + (isStale(quota.codex) ? staleColour : quotaColour)(theme, quota.codex.weeklyLeft, `${quota.codex.weeklyLeft}%`)
 							: theme.fg("dim", "Codex ") + (isStale(quota.codex) ? staleColour : quotaColour)(theme, quota.codex.primaryLeft, `${quota.codex.primaryLeft}%`) + theme.fg("dim", ` 5h · `) + (isStale(quota.codex) ? staleColour : quotaColour)(theme, quota.codex.weeklyLeft, `${quota.codex.weeklyLeft}%`) + theme.fg("dim", " week")
 						: theme.fg("warning", "Codex ?");
 					const claude = quota.claude

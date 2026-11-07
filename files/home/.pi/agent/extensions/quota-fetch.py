@@ -11,6 +11,7 @@ case. Designed to run under `python3` (any modern 3.x).
 """
 
 import json
+import math
 import os
 import re
 import select
@@ -93,7 +94,69 @@ def fetch_claude() -> dict:
     }
 
 
+def codex_snapshot(payload: dict, *, pi_oauth: bool) -> dict:
+    """Normalize both quota APIs without inventing missing quota values."""
+    try:
+        limits = payload["rate_limit"] if pi_oauth else payload
+        primary = limits["primary_window" if pi_oauth else "primary"]
+        secondary = limits["secondary_window" if pi_oauth else "secondary"]
+        percent_key = "used_percent" if pi_oauth else "usedPercent"
+        reset_key = "reset_at" if pi_oauth else "resetsAt"
+
+        def remaining(window):
+            value = window[percent_key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError
+            if not math.isfinite(value) or not 0 <= value <= 100:
+                raise ValueError
+            return 100 - int(round(value))
+
+        return {
+            "fetchedAt": int(time.time() * 1000),
+            "live": True,
+            "plan": str(payload.get("plan_type" if pi_oauth else "planType") or "subscription").title(),
+            "primaryLeft": remaining(primary),
+            "weeklyLeft": remaining(secondary),
+            "primaryResetsAt": primary.get(reset_key),
+            "weeklyResetsAt": secondary.get(reset_key),
+        }
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        bail("codex: invalid rate-limit response")
+
+
 def fetch_codex() -> dict:
+    """Use Pi's login; the independent Codex CLI login is only a fallback."""
+    try:
+        credentials = json.loads((HOME / ".pi" / "agent" / "auth.json").read_text())
+        oauth = credentials.get("openai-codex")
+    except FileNotFoundError:
+        oauth = None
+    except (OSError, ValueError, AttributeError):
+        bail("codex: unable to read Pi authentication")
+    if oauth and oauth.get("type") == "oauth":
+        token, account_id = oauth.get("access"), oauth.get("accountId")
+        if not isinstance(token, str) or not token or not isinstance(account_id, str) or not account_id:
+            bail("codex: incomplete Pi authentication")
+        request = urllib.request.Request(
+            "https://chatgpt.com/backend-api/wham/usage",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "ChatGPT-Account-Id": account_id,
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                payload = json.load(response)
+        except urllib.error.HTTPError as exc:
+            bail(f"codex: usage http {exc.code}")
+        except (OSError, ValueError, urllib.error.URLError):
+            bail("codex: usage request failed")
+        return codex_snapshot(payload, pi_oauth=True)
+    return fetch_codex_cli()
+
+
+def fetch_codex_cli() -> dict:
     """Local Codex app-server's documented account/rateLimits/read request."""
     if not shutil.which("codex"):
         bail("codex: cli missing")
@@ -131,24 +194,16 @@ def fetch_codex() -> dict:
         send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
         send({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read", "params": {}})
         payload = receive(2)["rateLimits"]
-    except Exception as exc:
-        bail(f"codex: {exc}")
+    except Exception:
+        bail("codex: CLI rate-limit request failed (check codex login status)")
     finally:
         process.terminate()
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             process.kill()
-    primary, secondary = payload["primary"], payload.get("secondary") or {}
-    return {
-        "fetchedAt": NOW_MS,
-        "live": True,
-        "plan": str(payload.get("planType") or "subscription").title(),
-        "primaryLeft": 100 - int(round(float(primary.get("usedPercent", primary.get("utilization", 0))))),
-        "weeklyLeft": 100 - int(round(float(secondary.get("usedPercent", secondary.get("utilization", 100 - 100))))) if secondary else 100,
-        "primaryResetsAt": primary.get("resetsAt"),
-        "weeklyResetsAt": secondary.get("resetsAt"),
-    }
+            process.wait()
+    return codex_snapshot(payload, pi_oauth=False)
 
 
 def fetch_minimax() -> dict:

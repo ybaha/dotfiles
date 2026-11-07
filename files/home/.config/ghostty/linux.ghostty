@@ -1,0 +1,25 @@
+# Load after config.ghostty from the Omarchy Ghostty config (Linux only).
+# font-family is additive in Ghostty; reset Omarchy's JetBrainsMono so the shared
+# Cascadia Code is the primary face, not just a fallback.
+font-family = ""
+font-family = Cascadia Code
+
+# The shared config's no-cursor replaces the whole list; keep Omarchy's ssh-env
+# so SSH sessions from this machine get a usable terminfo.
+shell-integration-features = no-cursor,ssh-env
+
+# Login shell is still bash until chsh is run; start zsh (Antigen, dst) directly.
+command = /usr/bin/zsh
+
+# macOS-style line/word deletion, same bytes as macos.ghostty. Super is the key next to
+# the spacebar (Command position), Alt the one left of it (Option position).
+keybind = super+backspace=text:\x15
+keybind = alt+backspace=text:\x1b\x7f
+keybind = super+left=text:\x01
+keybind = super+right=text:\x05
+keybind = alt+delete=esc:d
+# Same as macos.ghostty: forward delete sends Ctrl-D.
+keybind = delete=text:\x04
+
+# The shared 14 is sized for the Mac; with the 1.25 display scale, 11 reads well on the 13.3in panel.
+font-size = 11

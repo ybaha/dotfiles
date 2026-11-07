@@ -8,6 +8,17 @@ files/home/.claude/skills/ad-machine
 files/home/.claude/skills/foreman
 files/home/.claude/skills/app-store-aso
 
+# Omarchy system skills are symlinked locally on Linux/Omarchy hosts.
+files/home/.agents/skills/diagnose-crash
+files/home/.agents/skills/omarchy
+files/home/.agents/skills/omarchy-app
+files/home/.claude/skills/diagnose-crash
+files/home/.claude/skills/omarchy
+files/home/.claude/skills/omarchy-app
+files/home/.pi/agent/skills/diagnose-crash
+files/home/.pi/agent/skills/omarchy
+files/home/.pi/agent/skills/omarchy-app
+
 # Never version credentials, sessions, histories, generated caches, or databases.
 **/.DS_Store
 **/.venv/

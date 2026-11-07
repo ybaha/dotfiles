@@ -3,3 +3,7 @@ onboarding = false
 [theme]
 name = "catppuccin"
 auto_switch = false
+
+[terminal]
+# Dell only: the login shell is still bash until chsh is run.
+default_shell = "/usr/bin/zsh"
