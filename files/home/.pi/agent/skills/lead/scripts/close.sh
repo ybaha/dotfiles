@@ -56,7 +56,7 @@ if [[ -z "$WSID" ]]; then
   WSID="$(resolve_workspace_id "$WT")"
 fi
 if [[ -n "$WSID" ]]; then
-  if herdr worktree remove --workspace "$WSID" --force; then
+  if herdr worktree remove --workspace "$WSID" --force >/dev/null; then
     echo "worktree: removed workspace ${WSID}"
   else
     echo "worktree: herdr remove failed for ${WSID}" >&2

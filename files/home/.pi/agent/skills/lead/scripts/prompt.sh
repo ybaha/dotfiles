@@ -65,7 +65,7 @@ wait_for_working() {
 }
 
 send_prompt() {
-  herdr agent prompt "$SLUG" "$PROMPT_TEXT"
+  herdr agent prompt "$SLUG" "$PROMPT_TEXT" >/dev/null
 }
 
 wait_for_pi_ready() {

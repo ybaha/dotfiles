@@ -89,7 +89,7 @@ if [[ -n "$SETUP" ]]; then
   fi
 fi
 
-if ! herdr agent start "$SLUG" --kind pi --pane "$PANE_ID" --timeout 60000 -- --model "$MODEL"; then
+if ! herdr agent start "$SLUG" --kind pi --pane "$PANE_ID" --timeout 60000 -- --model "$MODEL" >/dev/null; then
   echo "herdr agent start failed" >&2
   exit 1
 fi
