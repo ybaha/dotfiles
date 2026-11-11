@@ -59,6 +59,10 @@ Keep one writer per worktree. Temporary children do not get durable Herdr panes.
 
 Use fresh briefs for new independent work. Resume when preserving costly child-local state is necessary; consolidate later directives into any replacement brief. Verify the actual diff and checks before claiming a child succeeded. A reviewer cannot run the proof itself under the current tool scope, so the supervisor owns execution.
 
+## Lead + worktree workers
+
+For durable parallel branches with one supervisor, use [`/skill:lead`](../../files/home/.pi/agent/skills/lead/SKILL.md) (scripts under `skills/lead/scripts/`). It spawns Herdr worktree workers; each worker’s watcher log is registered in `~/.pi/agent/state/worktree-watchers/<slug>.json`, including an optional `lead` field (pane + cwd). The [`worktree-lead`](../../files/home/.pi/agent/extensions/worktree-lead.ts) extension runs in the lead session: footer status per worker and a follow-up message after a terminal status holds for 30s (absorbs brief `done`→`working` blips). Do not use waiter subagents to block on finish — they waste tokens and still miss events; subagent frontmatter model pins ignore caller overrides anyway (see above).
+
 ## Sync and maintenance
 
 The inspected Mac already symlinks the managed paths into dotfiles; copying those paths back would just copy them onto themselves. New agent definitions and `subagents.json` must be included in a commit before another machine can receive them. Keep auth, sessions, generated output, schedules, caches, and host-specific integration state local.
