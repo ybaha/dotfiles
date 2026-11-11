@@ -7,6 +7,8 @@ description: Spawn a git worktree in the current repo as a Herdr workspace and s
 
 Spawn a git worktree, open it as a Herdr workspace, start a pi **worker** with context carried from the spawning session, and leave a background watcher logging lifecycle events to the worktree.
 
+For one lead managing several worktree workers, use `/skill:lead`.
+
 ## Usage
 
 ```
@@ -64,16 +66,18 @@ Follow ~/.pi/agent/AGENTS.md and the current repository's instructions. If prese
 
 Write to `/tmp/wt-<slug>-prompt.md` so quoting survives shell expansion.
 
-### 3. Start worker + send (fire-and-forget)
+### 3. Start worker (prompt after state file — step 4)
+
+Capture the spawning pane **before** any watcher env overrides:
 
 ```bash
+LEAD_PANE="${HERDR_PANE_ID:-}"
+BASE_BRANCH="$(git -C "$REPO_ROOT" branch --show-current)"
+
 herdr agent start "${SLUG}" --kind pi --pane <root_pane_id> --timeout 60000 -- --model 'cursor-ide/composer-2.5:high'
-herdr agent prompt "${SLUG}" "$(< "$PROMPT_FILE")"
 ```
 
-Skip the prompt line if no args were passed. The spawning agent returns immediately.
-
-### 4. Start background watcher (logs pane lifecycle to the worktree)
+### 4. Start background watcher + state (then prompt)
 
 Subscribes to the Herdr socket and appends `pane.agent_status_changed` + `pane.exited` events to `<worktree_path>/.herdr-watch.log`. Exits when the pane closes.
 
@@ -82,78 +86,70 @@ The spawning agent **does not wait** — the watcher is launched with `nohup ...
 ```bash
 WATCHER_LOG="<worktree_path>/.herdr-watch.log"
 WATCHER_PID_FILE="<worktree_path>/.herdr-watcher.pid"
-WATCHER_SCRIPT="$(mktemp -t wt-watcher.XXXXXX.py)"
+WORKTREE_PATH="$(dirname "$WATCHER_LOG")"
+ROOT_PANE="<root_pane_id>"
 
-# Write the watcher Python to a temp file (1 syscall, instant)
-cat > "$WATCHER_SCRIPT" <<'PYEOF'
-import os, socket, json, time
-sock_path = os.environ.get("HERDR_SOCK", os.path.expanduser("~/.config/herdr/herdr.sock"))
-pane_id   = os.environ["HERDR_PANE_ID"]
-label     = os.environ["HERDR_AGENT_LABEL"]
-try:
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(3600)
-    s.connect(sock_path)
-    s.sendall((json.dumps({
-        "jsonrpc": "2.0", "id": "watcher",
-        "method": "events.subscribe",
-        "params": {"subscriptions": [
-            {"type": "pane.agent_status_changed", "pane_id": pane_id},
-            {"type": "pane.exited",               "pane_id": pane_id},
-        ]}
-    }) + "\n").encode())
-    print(f"[{time.strftime('%H:%M:%S')}] subscribed pane={pane_id} label={label}", flush=True)
-    buf = b""
-    while True:
-        chunk = s.recv(4096)
-        if not chunk: break
-        buf += chunk
-        while b"\n" in buf:
-            line, buf = buf.split(b"\n", 1)
-            if not line.strip(): continue
-            try:
-                evt = json.loads(line.decode())
-            except Exception:
-                continue
-            kind = evt.get("event", "?")
-            data = evt.get("data", {})
-            ts = time.strftime("%H:%M:%S")
-            if kind == "pane.agent_status_changed":
-                status = data.get("agent_status", "")
-                agent  = data.get("agent") or data.get("display_agent") or "?"
-                print(f"[{ts}] {label}: status={status} agent={agent}", flush=True)
-                if status == "blocked":
-                    print(f"[{ts}] {label}: BLOCKED — needs user input", flush=True)
-            elif kind == "pane.exited":
-                print(f"[{ts}] {label}: pane exited", flush=True)
-                s.close()
-                break
-except Exception as e:
-    print(f"[watcher-error] {e}", flush=True)
-PYEOF
-
-# Launch in true background sub-process. Returns to caller in <50ms.
-HERDR_PANE_ID="<root_pane_id>" HERDR_AGENT_LABEL="${SLUG}" \
-  nohup python3 -u "$WATCHER_SCRIPT" >> "$WATCHER_LOG" 2>&1 &
+HERDR_PANE_ID="$ROOT_PANE" HERDR_AGENT_LABEL="${SLUG}" \
+  nohup python3 -u "$HOME/.pi/agent/skills/worktree/scripts/herdr-watch.py" \
+  >> "$WATCHER_LOG" 2>&1 &
 WATCHER_PID=$!
 disown
 echo "$WATCHER_PID" > "$WATCHER_PID_FILE"
 
-# Register the watcher so the matching worktree session's footer shows its
-# latest event (picked up by the `worktree-watcher-status` extension, which polls
-# every 2s).
 mkdir -p "$HOME/.pi/agent/state/worktree-watchers"
-cat > "$HOME/.pi/agent/state/worktree-watchers/${SLUG}.json" <<STATEEOF
-{
-  "slug": "${SLUG}",
-  "logFile": "${WATCHER_LOG}",
-  "paneId": "${HERDR_PANE_ID}",
-  "agentLabel": "${SLUG}",
-  "worktreePath": "$(dirname "$WATCHER_LOG")",
-  "spawnedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-STATEEOF
+STATE_FILE="$HOME/.pi/agent/state/worktree-watchers/${SLUG}.json"
+
+if [ -n "$LEAD_PANE" ]; then
+  jq -n \
+    --arg slug "$SLUG" \
+    --arg logFile "$WATCHER_LOG" \
+    --arg paneId "$ROOT_PANE" \
+    --arg agentLabel "$SLUG" \
+    --arg worktreePath "$WORKTREE_PATH" \
+    --arg spawnedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg leadPane "$LEAD_PANE" \
+    --arg leadCwd "$PWD" \
+    --arg base "$BASE_BRANCH" \
+    --arg repoRoot "$REPO_ROOT" \
+    --arg workspaceId "<workspace_id>" \
+    '{
+      slug: $slug,
+      logFile: $logFile,
+      paneId: $paneId,
+      agentLabel: $agentLabel,
+      worktreePath: $worktreePath,
+      spawnedAt: $spawnedAt,
+      base: $base,
+      repoRoot: $repoRoot,
+      workspaceId: $workspaceId,
+      lead: { paneId: $leadPane, cwd: $leadCwd }
+    }' > "$STATE_FILE"
+else
+  jq -n \
+    --arg slug "$SLUG" \
+    --arg logFile "$WATCHER_LOG" \
+    --arg paneId "$ROOT_PANE" \
+    --arg agentLabel "$SLUG" \
+    --arg worktreePath "$WORKTREE_PATH" \
+    --arg spawnedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{
+      slug: $slug,
+      logFile: $logFile,
+      paneId: $paneId,
+      agentLabel: $agentLabel,
+      worktreePath: $worktreePath,
+      spawnedAt: $spawnedAt
+    }' > "$STATE_FILE"
+fi
 ```
+
+Send the brief after the state file exists (skip if no user args):
+
+```bash
+~/.pi/agent/skills/lead/scripts/prompt.sh "$SLUG" --file "$PROMPT_FILE"
+```
+
+`prompt.sh` confirms delivery and resends once. The spawning agent returns immediately.
 
 **Why this is non-blocking**: `nohup ... &` forks the python into its own process. `disown` removes it from the shell's job table so bash exits immediately without waiting. The spawning shell returns in single-digit milliseconds — verified.
 
@@ -163,7 +159,7 @@ Read the watcher log anytime:
 tail -f <path>/.herdr-watch.log
 ```
 
-Stop it manually:
+Stop it manually only after verifying `/proc/<pid>/cmdline` contains `herdr-watch.py`:
 
 ```bash
 kill "$(cat <path>/.herdr-watcher.pid)"
@@ -195,11 +191,13 @@ State file at `~/.pi/agent/state/worktree-watchers/<slug>.json` controls registr
 - Use Herdr's random default name (`worktree/<random>`)
 - Run `git worktree add` directly — go through `herdr worktree create` so Herdr tracks the workspace
 - Pass the raw user args without the context+worker framing — the new agent starts with zero history
-- Pass the prompt as a CLI arg to `herdr agent start` — always `agent prompt` afterward
+- Pass the prompt as a CLI arg to `herdr agent start` — use `prompt.sh` or `herdr agent prompt` afterward
 - `--wait` on `agent prompt` unless the user explicitly asked to block
+- `pkill -f` / `pgrep -f | kill` — the pattern matches your own shell; kill the saved watcher PID after checking `/proc/<pid>/cmdline`
 
 ## See also
 
+- `/skill:lead` — one lead, several worktree workers with finish notifications
 - `herdr --skill` · `herdr worktree --help` · `herdr agent prompt --help`
 - `~/.pi/agent/AGENTS.md` — cross-project operating rules
 - `docs/agent-stack/ROUTING.md` in dotfiles (if present) — model tiers per task type
