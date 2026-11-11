@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Build the directory site and publish it to the `agents` LXC (http://agents/).
+#   directory/deploy          build + push + verify
+#   directory/deploy --setup  first-time: install status timer + tailscale serve (idempotent)
+# Env: DIRECTORY_PVE (default root@home), DIRECTORY_CT (default 109)
+set -euo pipefail
+HERE=$(cd "$(dirname "$0")" && pwd)
+PVE=${DIRECTORY_PVE:-root@home}; CT=${DIRECTORY_CT:-109}
+TAILNET=${TAILNET:-$(sed -n 's/^TAILNET=//p' "$HOME/.config/pi-agent/local.env" 2>/dev/null | head -1)}
+[[ -n "$TAILNET" ]] || { echo "TAILNET missing (see ~/.config/pi-agent/local.env)" >&2; exit 1; }
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+python3 -I "$HERE/build.py" "$tmp/site"
+if [[ "${1:-}" == "--setup" ]]; then
+  cp "$HERE/status.sh" "$tmp/site/.status.sh"
+fi
+tar c -C "$tmp/site" . | ssh "$PVE" "pct exec $CT -- bash -c 'set -e
+  rm -rf /srv/agents.new; mkdir -p /srv/agents.new /srv/agents; tar x -C /srv/agents.new
+  [ -f /srv/agents/status.json ] && cp -a /srv/agents/status.json /srv/agents.new/ || echo \"{}\" > /srv/agents.new/status.json
+  if [ -f /srv/agents.new/.status.sh ]; then mv /srv/agents.new/.status.sh /usr/local/bin/agents-status; chmod 755 /usr/local/bin/agents-status; fi
+  rm -rf /srv/agents.prev; mv /srv/agents /srv/agents.prev; mv /srv/agents.new /srv/agents
+  chmod -R a+rX /srv/agents; /usr/local/bin/agents-status 2>/dev/null || true'"
+if [[ "${1:-}" == "--setup" ]]; then
+  ssh "$PVE" "pct exec $CT -- bash -s" <<'REMOTE'
+set -e
+cat > /etc/systemd/system/agents-status.service <<'U'
+[Unit]
+Description=Probe service health for the agents directory
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/agents-status
+U
+cat > /etc/systemd/system/agents-status.timer <<'U'
+[Unit]
+Description=Run agents-status every 5 minutes
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+U
+systemctl daemon-reload; systemctl enable --now agents-status.timer >/dev/null 2>&1
+tailscale serve --bg --https=443 /srv/agents >/dev/null
+tailscale serve --bg --http=80 /srv/agents >/dev/null
+tailscale serve status
+REMOTE
+fi
+code=$(curl -s -m 20 -o /dev/null -w '%{http_code}' "https://agents.$TAILNET/index.md" || true)
+echo "published: https://agents.$TAILNET/  (index.md -> HTTP $code)"
+[[ "$code" == 200 ]]

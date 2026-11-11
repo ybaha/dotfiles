@@ -1,0 +1,241 @@
+# Single source of truth for http://agents/. Edit this, then run `~/code/dotfiles/directory/deploy`.
+# `{tailnet}` is replaced at build time from TAILNET in ~/.config/pi-agent/local.env (keeps the tailnet name out of git).
+# NEVER put secrets here - only the *location* of credentials. `verified` says how sure we are.
+
+[directory]
+title = "Home cluster directory"
+base_url = "http://agents"
+https_url = "https://agents.{tailnet}"
+summary = """A small self-hosted setup: one Proxmox host (`home`) running LXC containers and VMs, all reachable only over Tailscale. \
+Nothing here is on the public internet. If you can read this page, your device is on the tailnet."""
+conventions = [
+  "Everything is tailnet-only. There is no public ingress; do not try to expose anything.",
+  "Services with an API use `Authorization: Bearer <token>`. Tokens are never published here; the 'auth' field of each service says where yours lives.",
+  "Never copy tokens or secrets into prompts, repos, logs or chat. Read them from the file at runtime.",
+  "Read-only first: prefer GET endpoints. Do not restart, delete or modify containers on `home` unless the owner asked.",
+  "Times are UTC in APIs unless a field says otherwise; the owner's timezone is Europe/Amsterdam.",
+  "`verified` on a service: `live` = checked against the running service; `inferred` = guessed from names/config, confirm with the owner before relying on it.",
+]
+
+[[service]]
+id = "air-sync"
+tags = ["api", "health", "data"]
+name = "Fitbit Air health data (air-sync)"
+purpose = "Owner's personal health data from a Fitbit Air via the Google Health API: heart rate (intraday), steps, calories, distance, activity minutes, battery, weight/BMI; sleep, HRV, SpO2, resting HR, HR zones, breathing rate, skin temp and exercise sessions once recorded. Query it to answer questions about the owner's activity, sleep and recovery."
+status = "running"
+verified = "live"
+host = "CT 108 `fitbit-health` on `home`, Rust + SQLite, ~4 MB RAM"
+url = "https://fitbit-health.{tailnet}"
+auth = "Bearer token. Workstation: `. ~/.config/fitbit-air/agent.env` sets `AIR_URL` and `AIR_API_TOKEN`. Server copy: `/etc/air-sync.env` in CT 108."
+health_url = "https://fitbit-health.{tailnet}/healthz"
+start_here = "GET /v1/summary?days=7 for a per-day overview; GET /v1/measurements to see what exists; GET /v1/points for raw rows."
+endpoints = [
+  "GET /healthz - no auth; {ok, db_points, version}",
+  "GET /v1/summary?days=N - per-day steps, calories, distance, hr_min/avg/max, activity minutes, resting_hr, hrv, spo2, breathing, skin temp (null when not recorded)",
+  "GET /v1/points?measurement=NAME&from=&to=&limit=&order= - raw points; `from` inclusive, `to` exclusive, dates `YYYY-MM-DD` (Europe/Amsterdam) or RFC3339",
+  "GET /v1/latest?measurement=NAME - newest point",
+  "GET /v1/measurements - names with counts and first/last timestamps",
+  "GET /v1/status - sync job health, token state, device battery and last sync",
+  "POST /v1/sync?job=all - trigger an immediate sync (the only write; safe)",
+]
+example = [
+  '. ~/.config/fitbit-air/agent.env',
+  'curl -s -H "Authorization: Bearer $AIR_API_TOKEN" "$AIR_URL/v1/summary?days=7"',
+  'curl -s -H "Authorization: Bearer $AIR_API_TOKEN" "$AIR_URL/v1/points?measurement=HeartRate_Intraday&from=2026-11-11&limit=500"',
+]
+gotchas = [
+  "Measurement names match the old fitbit-grafana schema and contain spaces (`Total Steps`, `Activity Minutes`); URL-encode with `+` or `%20`.",
+  "Sleep/HRV/SpO2/resting HR/HR zones/activities were ported but unverified against real data until the device has recorded several nights (see docs/UNVERIFIED.md in the repo).",
+  "Today's calories/steps are in progress and change minute to minute.",
+  "Google refresh token may expire ~7 days after consent; if /v1/status shows token or sync errors, the owner must re-consent (runbook below).",
+]
+docs = [
+  ["API reference", "~/code/air-sync/docs/API.md"],
+  ["Operations runbook", "~/code/air-sync/docs/OPERATIONS.md"],
+]
+
+[[service]]
+id = "previews"
+tags = ["web", "dev"]
+name = "Project previews (previewctl dashboard)"
+purpose = "Temporary (24h TTL) HTTPS previews of work-in-progress projects on the dev workstation, each on its own port, with a dashboard listing them. Look here for a dev front end the owner just asked an agent to publish."
+status = "running"
+verified = "live"
+host = "Workstation `dell` (tailnet node `dell`), managed by `previewctl` (dotfiles skill `/preview`)."
+url = "https://dell.{tailnet}/"
+health_url = "https://dell.{tailnet}/"
+auth = "Tailnet only."
+start_here = "`previewctl list` prints every live preview with its URL; `previewctl up` publishes the current project."
+gotchas = ["Entries are ephemeral and expire after 24h unless refreshed; do not hard-code their URLs."]
+
+[[service]]
+id = "nextcloud"
+tags = ["web", "files"]
+name = "Nextcloud (files, calendar, AI-Inbox)"
+purpose = "Owner's personal cloud: files, contacts, calendar. Contains an `AI-Inbox` folder where documents for phone review are placed."
+status = "running"
+verified = "inferred"
+host = "CT 101 `NextCloud` on `home` (snap Nextcloud + MySQL; 4 cores, 8 GB, 240 GB disk). Also exposes Samba (445)."
+url = "https://home.{tailnet}"
+auth = "Per-user Nextcloud login/app password; ask the owner. Not provided here."
+health_url = "https://home.{tailnet}/status.php"
+start_here = "WebDAV at /remote.php/dav/files/<user>/ with an app password; /status.php for health."
+endpoints = ["GET /status.php - health, no auth", "WebDAV /remote.php/dav/files/<user>/ - needs app password"]
+gotchas = ["Served by the Proxmox host's Tailscale on the host's own name (`home`), not its own node."]
+
+[[service]]
+id = "immich"
+tags = ["web", "photos"]
+name = "Immich (photos)"
+purpose = "Photo and video library with machine-learning search."
+status = "running"
+verified = "inferred"
+host = "Docker inside CT 101 (immich_server, machine_learning, postgres, valkey)."
+url = "https://home.{tailnet}:2283"
+auth = "Immich account / API key created in the Immich UI; ask the owner."
+health_url = "https://home.{tailnet}:2283/api/server/ping"
+start_here = "GET /api/server/ping for health; API docs at /api (needs x-api-key)."
+endpoints = ["GET /api/server/ping - health, no auth"]
+
+[[service]]
+id = "life-hq"
+tags = ["web", "dashboard"]
+name = "Life HQ dashboard"
+purpose = "Owner's live personal dashboard (backend + static web UI)."
+status = "running"
+verified = "inferred"
+host = "CT 107 `life-hq` on `home` (Python `lifehq serve`, SQLite, 512 MB). Peer-restricted: only allowed source IPs may call it."
+url = "https://home.{tailnet}:8445"
+auth = "Network allow-list (`LIFEHQ_ALLOWED_PEERS`) plus its own config under `/etc/life-hq/` in CT 107 (contains secrets; do not read or copy)."
+start_here = "Open the URL in a browser; ask the owner before scripting against it."
+gotchas = ["Requests from non-allowed peers are rejected even on the tailnet."]
+
+[[service]]
+id = "fleet"
+tags = ["web", "monitoring"]
+name = "Fleet monitoring hub"
+purpose = "Dashboard monitoring the owner's machines/agents (hub + agent processes)."
+status = "running"
+verified = "inferred"
+host = "CT 106 `fleet` (own tailnet node `fleet`, 256 MB): `fleet hub` on 127.0.0.1:8080 plus `fleet-agent`."
+url = "https://fleet.{tailnet}"
+auth = "Tailnet only; no token known."
+health_url = "https://fleet.{tailnet}/"
+start_here = "Open the URL for the UI."
+
+[[service]]
+id = "obsidian-sync"
+tags = ["api", "notes"]
+name = "Obsidian LiveSync (CouchDB)"
+purpose = "CouchDB backing Obsidian's Self-hosted LiveSync plugin: the owner's notes vault sync."
+status = "stopped"
+verified = "inferred"
+host = "CT 105 `obsidian-sync` on `home` (1 GB). Currently STOPPED; start order 30 when enabled."
+url = "https://home.{tailnet}:8443"
+auth = "CouchDB credentials known to the owner/Obsidian config."
+gotchas = ["Stopped as of 2026-11-11; the URL will not respond until CT 105 is started."]
+
+[[service]]
+id = "homeassistant"
+tags = ["web", "home"]
+name = "Home Assistant"
+purpose = "Home automation hub (smart-home devices and sensors)."
+status = "running"
+verified = "inferred"
+host = "VM 100 `homeassistant` on `home` (HAOS, 4 GB). LAN-only; no Tailscale node/URL known."
+auth = "Home Assistant long-lived token; ask the owner."
+start_here = "Not reachable via a stable tailnet URL yet; ask the owner for the LAN address."
+
+[[node]]
+name = "home"
+kind = "Proxmox VE 8 host, 16 GB RAM"
+role = "Runs all containers/VMs below. Its tailnet name fronts Nextcloud (443), Immich (2283), Obsidian CouchDB (8443), Life HQ (8445). Proxmox UI on LAN :8006."
+[[node]]
+name = "agents"
+kind = "CT 109 on home"
+role = "This directory."
+[[node]]
+name = "dell"
+kind = "Owner's main Linux workstation"
+role = "Where most agents run; hosts the previewctl dashboard."
+[[node]]
+name = "fitbit-health"
+kind = "CT 108 on home"
+role = "air-sync API."
+[[node]]
+name = "fleet"
+kind = "CT 106 on home"
+role = "Fleet monitoring hub."
+[[node]]
+name = "other laptops (macOS/Linux)"
+kind = "Owner's laptops"
+role = "Other machines where agents may run; `tailscale status` lists them."
+[[node]]
+name = "vps1"
+kind = "Remote VPS"
+role = "Purpose unknown to this directory."
+[[node]]
+name = "clawd and phones"
+kind = "Offline/phone devices"
+role = "clawd and iphone-15 are offline for weeks."
+
+[[guest]]
+id = "VM 100"
+name = "homeassistant"
+status = "running"
+ram = "4 GB"
+note = "Home Assistant OS."
+[[guest]]
+id = "VM 104"
+name = "clawd-ubuntu"
+status = "stopped"
+ram = "8 GB"
+note = "Old agent VM; tailnet node `clawd` is offline."
+[[guest]]
+id = "CT 101"
+name = "NextCloud"
+status = "running"
+ram = "8 GB"
+note = "Nextcloud, Immich (docker), Samba."
+[[guest]]
+id = "CT 102"
+name = "MCServer"
+status = "stopped"
+ram = "4 GB"
+note = "Presumably a Minecraft server (inferred from name)."
+[[guest]]
+id = "CT 103"
+name = "CT103"
+status = "stopped"
+ram = "512 MB"
+note = "Unknown purpose."
+[[guest]]
+id = "CT 105"
+name = "obsidian-sync"
+status = "stopped"
+ram = "1 GB"
+note = "Obsidian LiveSync CouchDB."
+[[guest]]
+id = "CT 106"
+name = "fleet"
+status = "running"
+ram = "256 MB"
+note = "Fleet hub, own tailnet node."
+[[guest]]
+id = "CT 107"
+name = "life-hq"
+status = "running"
+ram = "512 MB"
+note = "Life HQ dashboard."
+[[guest]]
+id = "CT 108"
+name = "fitbit-health"
+status = "running"
+ram = "384 MB"
+note = "air-sync; own tailnet node."
+[[guest]]
+id = "CT 109"
+name = "agents"
+status = "running"
+ram = "192 MB"
+note = "This directory; own tailnet node."
