@@ -79,6 +79,8 @@ if [[ "$(uname -s)" == Darwin ]]; then
   assert "omarchy rejected on real Darwin uname" test "$rc" -eq 2
 fi
 
+assert "pi worktree-lead unit tests" node --test "$ROOT/tests/pi-worktree-lead.test.mjs"
+
 if [[ "$FAIL" -gt 0 ]]; then
   echo "$PASS passed, $FAIL failed" >&2
   exit 1
