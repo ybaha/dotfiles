@@ -2,7 +2,40 @@
 # shellcheck shell=bash
 
 state_dir() {
+  if [[ -n "${WORKTREE_WATCHERS_DIR:-}" ]]; then
+    printf '%s' "$WORKTREE_WATCHERS_DIR"
+    return
+  fi
   printf '%s/.pi/agent/state/worktree-watchers' "$HOME"
+}
+
+resolve_state_fields() {
+  local file="$1"
+  WT="$(jq -r '.worktreePath // empty' "$file")"
+  if [[ -z "$WT" ]]; then
+    local log_file
+    log_file="$(jq -r '.logFile // empty' "$file")"
+    if [[ -n "$log_file" ]]; then
+      WT="$(dirname "$log_file")"
+    fi
+  fi
+
+  REPO="$(jq -r '.repoRoot // empty' "$file")"
+  if [[ -z "$REPO" ]] && [[ -n "$WT" ]]; then
+    local common_git
+    common_git="$(git -C "$WT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    if [[ -n "$common_git" ]]; then
+      REPO="$(dirname "$common_git")"
+    fi
+  fi
+
+  BASE="$(jq -r '.base // empty' "$file")"
+  if [[ -z "$BASE" ]] && [[ -n "$REPO" ]]; then
+    BASE="$(git -C "$REPO" symbolic-ref --short HEAD 2>/dev/null || true)"
+  fi
+  if [[ -z "$BASE" ]]; then
+    BASE="master"
+  fi
 }
 
 state_file_for() {

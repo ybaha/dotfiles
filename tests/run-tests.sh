@@ -81,6 +81,8 @@ fi
 
 assert "pi worktree-lead unit tests" node --test "$ROOT/tests/pi-worktree-lead.test.mjs"
 
+assert "lead close state fallback" bash "$ROOT/tests/lead-close-fallback.sh"
+
 if [[ "$FAIL" -gt 0 ]]; then
   echo "$PASS passed, $FAIL failed" >&2
   exit 1
