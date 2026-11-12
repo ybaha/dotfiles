@@ -31,9 +31,7 @@ if [[ ! -f "$STATE_FILE" ]]; then
   exit 1
 fi
 
-WT="$(jq -r '.worktreePath' "$STATE_FILE")"
-REPO="$(jq -r '.repoRoot' "$STATE_FILE")"
-BASE="$(jq -r '.base // "master"' "$STATE_FILE")"
+resolve_state_fields "$STATE_FILE"
 WSID="$(jq -r '.workspaceId // empty' "$STATE_FILE")"
 
 if [[ "$FORCE" != true ]]; then

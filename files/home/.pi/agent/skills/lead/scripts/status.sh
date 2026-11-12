@@ -67,12 +67,13 @@ for f in "${FILES[@]}"; do
   matches_lead "$f" || continue
   found=1
   slug="$(jq -r '.slug' "$f")"
-  wt="$(jq -r '.worktreePath' "$f")"
-  base="$(jq -r '.base // "master"' "$f")"
-  repo="$(jq -r '.repoRoot // empty' "$f")"
   log="$(jq -r '.logFile // empty' "$f")"
+  resolve_state_fields "$f"
+  wt="$WT"
+  repo="$REPO"
+  base="$BASE"
 
-  if [[ ! -d "$wt" ]]; then
+  if [[ -z "$wt" || ! -d "$wt" ]]; then
     printf "%-16s %-24s %5s %5s %6s\n" "$slug" "gone" "—" "—" "—"
     continue
   fi
