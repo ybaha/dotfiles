@@ -79,14 +79,16 @@ test("parseLogLine kinds", () => {
 
 test("decideNotify hold and blip", () => {
 	const now = fixedNow(16, 40, 0);
+	const workingFirst = L("16:38:00", "status=working agent=pi");
 	const doneLine = L("16:39:00", "status=done agent=pi");
 	const workingBlip = L("16:39:20", "status=working agent=pi");
-	assert.equal(decideNotify({ lines: [doneLine], nowMs: fixedNow(16, 39, 25), holdMs: 30_000 }).notify, false);
-	const held = decideNotify({ lines: [doneLine], nowMs: now, holdMs: 30_000 });
+	const afterStart = [workingFirst, doneLine];
+	assert.equal(decideNotify({ lines: afterStart, nowMs: fixedNow(16, 39, 25), holdMs: 30_000 }).notify, false);
+	const held = decideNotify({ lines: afterStart, nowMs: now, holdMs: 30_000 });
 	assert.equal(held.notify, true);
 	assert.equal(held.kind, "done");
-	assert.equal(decideNotify({ lines: [doneLine], notified: doneLine, nowMs: now }).notify, false);
-	const blip = [doneLine, workingBlip];
+	assert.equal(decideNotify({ lines: afterStart, notified: doneLine, nowMs: now }).notify, false);
+	const blip = [workingFirst, doneLine, workingBlip];
 	assert.equal(decideNotify({ lines: blip, nowMs: now + 60_000 }).notify, false);
 });
 
@@ -137,4 +139,42 @@ test("writeNotifiedAtomic", () => {
 test("latestRelevant skips other", () => {
 	const lines = [L("12:00:00", "subscribed pane=x"), L("12:01:00", "status=idle agent=pi")];
 	assert.equal(latestRelevant(lines)?.parsed.status, "idle");
+});
+
+test("decideNotify idle/done require prior working", () => {
+	const subscribe = L("11:40:02", "subscribed pane=w1X:p1 label=home-analyzer");
+	const preIdle = L("11:40:02", "status=idle agent=pi");
+	const preStart = decideNotify({
+		lines: [subscribe, preIdle],
+		nowMs: fixedNow(11, 42, 2),
+		holdMs: 30_000,
+	});
+	assert.equal(preStart.notify, false);
+
+	const idle1 = L("11:40:02", "status=idle agent=pi");
+	const working = L("11:40:58", "status=working agent=pi");
+	const idle2 = L("11:41:58", "status=idle agent=pi");
+	const finished = decideNotify({
+		lines: [idle1, working, idle2],
+		nowMs: fixedNow(11, 42, 58),
+		holdMs: 30_000,
+	});
+	assert.equal(finished.notify, true);
+	assert.equal(finished.kind, "idle");
+
+	const blockedLine = L("11:40:05", "BLOCKED — needs user input");
+	const blockedEarly = decideNotify({
+		lines: [subscribe, blockedLine],
+		nowMs: fixedNow(11, 41, 10),
+		holdMs: 30_000,
+	});
+	assert.equal(blockedEarly.notify, true);
+	assert.equal(blockedEarly.kind, "blocked");
+
+	const doneLine = L("11:40:20", "status=done agent=pi");
+	const workingBeforeDone = L("11:40:00", "status=working agent=pi");
+	assert.equal(
+		decideNotify({ lines: [workingBeforeDone, doneLine], nowMs: fixedNow(11, 40, 25), holdMs: 30_000 }).notify,
+		false,
+	);
 });
