@@ -63,6 +63,22 @@ export function decideNotify(opts: { lines: string[]; notified?: string; nowMs: 
 		else return { notify: false as const };
 	} else if (parsed.kind === "blocked" || parsed.kind === "exited") kind = parsed.kind;
 	else return { notify: false as const };
+	if (kind === "idle" || kind === "done") {
+		let latestIdx = -1;
+		for (let i = 0; i < opts.lines.length; i++) {
+			const p = parseLogLine(opts.lines[i]);
+			if (p && p.kind !== "other") latestIdx = i;
+		}
+		let sawWorking = false;
+		for (let i = 0; i < latestIdx; i++) {
+			const p = parseLogLine(opts.lines[i]);
+			if (p?.kind === "status" && p.status === "working") {
+				sawWorking = true;
+				break;
+			}
+		}
+		if (!sawWorking) return { notify: false as const };
+	}
 	if (opts.nowMs - lineTimeMs(parsed.time, opts.nowMs) < hold || line === opts.notified) return { notify: false as const };
 	return { notify: true as const, line, kind, time: parsed.time };
 }
