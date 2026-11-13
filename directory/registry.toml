@@ -124,6 +124,19 @@ health_url = "https://fleet.{tailnet}/"
 start_here = "Open the URL for the UI."
 
 [[service]]
+id = "postmixr-socks"
+tags = ["proxy", "postmixr"]
+name = "Postmixr video-fetch proxy (SOCKS5)"
+purpose = "Residential exit for Postmixr's link analyzer (yt-dlp): Instagram and TikTok links fetched through the home IP. Replaces the old clawd proxy."
+status = "running"
+verified = "2026-11-13"
+host = "CT 106 `fleet`: systemd `postmixr-socks` (microsocks) on 100.65.15.51:1080. Firewall table `inet postmixr_socks` (loaded by the unit from /etc/postmixr-socks.nft)."
+url = "socks5h://100.65.15.51:1080"
+auth = "No credentials. nftables accepts :1080 only from the Postmixr VPS (100.92.159.105); the proxy user cannot reach private, home or tailnet addresses except Tailscale DNS."
+start_here = "Used via `YT_DLP_PROXY` in the Postmixr VPS env. Check with `pct exec 106 -- systemctl status postmixr-socks`."
+gotchas = ["Use socks5h:// (proxy-side DNS): CT 106 has no working IPv6 egress, and /etc/gai.conf prefers IPv4.", "YouTube blocks the home IPv4 ('confirm you're not a bot'); YouTube links still fail until IPv6 egress works on the wired LAN or cookies are configured.", "Other tailnet devices are deliberately blocked; test from the VPS."]
+
+[[service]]
 id = "obsidian-sync"
 tags = ["api", "notes"]
 name = "Obsidian LiveSync (CouchDB)"
