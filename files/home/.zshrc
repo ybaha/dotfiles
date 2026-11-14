@@ -110,6 +110,18 @@ fi
 
 path=( "$HOME/.local/bin" $path )
 
+# botbox box-name completion. Antigen's compdef only takes effect once the first
+# prompt is drawn, so register from a one-shot precmd hook rather than here.
+_botbox_completion_init() {
+  add-zsh-hook -d precmd _botbox_completion_init
+  unfunction _botbox_completion_init
+  (( $+commands[botbox] )) && source <(botbox completion zsh)
+}
+if [[ -o interactive ]]; then
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _botbox_completion_init
+fi
+
 alias tm='task-master'
 alias taskmaster='task-master'
 

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Watch pi-subagents background workers and prompt the lead agent (via hc) when one looks stuck.
+#
+# A worker is "stuck" when its transcript (tasks/<id>.output) ends mid-work (last record is a tool
+# call or a tool result, not a final reply) and has not been written for --stale minutes.
+# Long single tool calls (a browser run) also look quiet; the prompt tells the lead to check for
+# live processes before killing anything.
+set -euo pipefail
+
+STALE_MIN=20
+INTERVAL=60
+COOLDOWN_MIN=30
+MAX_AGE_H=6
+TARGET="${HC_TERMINAL_ID:-}"
+ROOTS=("/tmp/pi-subagents-$(id -u)")
+DRY_RUN=0
+ONCE=0
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/pi-agent-watch"
+
+usage() {
+	cat <<EOF
+Usage: pi-agent-watch [options]
+  --target PANE|NAME   hc terminal address or name to prompt (default: \$HC_TERMINAL_ID)
+  --stale MIN          minutes without transcript writes before a worker counts as stuck (default $STALE_MIN)
+  --interval SEC       seconds between scans (default $INTERVAL)
+  --cooldown MIN       minutes before the same worker is reported again (default $COOLDOWN_MIN)
+  --max-age HOURS      ignore transcripts older than this (default $MAX_AGE_H)
+  --root DIR           pi-subagents root to scan (repeatable; default /tmp/pi-subagents-UID)
+  --once               scan once and exit
+  --dry-run            print what would be sent instead of prompting
+EOF
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--target) TARGET="$2"; shift 2 ;;
+		--stale) STALE_MIN="$2"; shift 2 ;;
+		--interval) INTERVAL="$2"; shift 2 ;;
+		--cooldown) COOLDOWN_MIN="$2"; shift 2 ;;
+		--max-age) MAX_AGE_H="$2"; shift 2 ;;
+		--root) [ "${ROOTS_SET:-0}" = 1 ] || ROOTS=(); ROOTS_SET=1; ROOTS+=("$2"); shift 2 ;;
+		--once) ONCE=1; shift ;;
+		--dry-run) DRY_RUN=1; shift ;;
+		-h | --help) usage; exit 0 ;;
+		*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+	esac
+done
+
+[ -n "$TARGET" ] || { echo "no --target and HC_TERMINAL_ID is unset" >&2; exit 2; }
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+[ "$DRY_RUN" = 1 ] || command -v hc >/dev/null || { echo "hc is required" >&2; exit 2; }
+mkdir -p "$STATE_DIR"
+NOTIFIED="$STATE_DIR/notified"
+touch "$NOTIFIED"
+
+# Prints "working" when the last record means the worker is mid-task, "done" otherwise.
+worker_state() {
+	local last
+	last="$(tail -n 1 "$1" 2>/dev/null || true)"
+	[ -n "$last" ] || { echo done; return; }
+	printf '%s' "$last" | jq -r '
+		if .type == "assistant" then
+			(if (.message.content | map(.type) | index("toolCall")) then "working" else "done" end)
+		elif .type == "toolResult" or .type == "user" then "working"
+		else "done" end' 2>/dev/null || echo done
+}
+
+last_note() {
+	tail -n 1 "$1" | jq -r '
+		(.message.content // [] | if type == "array" then map(select(.type == "toolCall") | (.name // "tool")) | join(",") else "" end)
+		+ (if .type == "toolResult" then "tool result" else "" end)' 2>/dev/null | cut -c1-80
+}
+
+recently_notified() {
+	local id="$1" now last
+	now="$(date +%s)"
+	last="$(awk -v id="$id" '$1 == id { t = $2 } END { print t + 0 }' "$NOTIFIED")"
+	[ $((now - last)) -lt $((COOLDOWN_MIN * 60)) ]
+}
+
+mark_notified() {
+	local tmp
+	tmp="$(mktemp "$STATE_DIR/n.XXXXXX")"
+	{ grep -v "^$1 " "$NOTIFIED" || true; echo "$1 $(date +%s)"; } >"$tmp"
+	mv "$tmp" "$NOTIFIED"
+}
+
+prompt_lead() {
+	local text="$1"
+	if [ "$DRY_RUN" = 1 ]; then
+		echo "[dry-run] hc send $TARGET: $text"
+	else
+		hc send "$TARGET" "$text" >/dev/null
+	fi
+}
+
+scan() {
+	local file id now mtime idle_min note cwd worktrees
+	now="$(date +%s)"
+	while IFS= read -r file; do
+		[ -n "$file" ] || continue
+		id="$(basename "$file" .output)"
+		mtime="$(stat -c %Y "$file")"
+		idle_min=$(((now - mtime) / 60))
+		[ "$idle_min" -ge "$STALE_MIN" ] || continue
+		[ "$(worker_state "$file")" = working ] || continue
+		recently_notified "$id" && continue
+		note="$(last_note "$file")"
+		cwd="$(head -n 1 "$file" | jq -r '.message.content // "" | tostring' | grep -o '/home/[^ ]*little-haven-wt/[A-Za-z0-9._-]*' | head -n 1 || true)"
+		prompt_lead "Stuck-worker watch: subagent $id has not written to its transcript for ${idle_min} min and its last step was ${note:-unknown} (worktree ${cwd:-unknown}, transcript $file). Check whether it is really stuck: get_subagent_result, git log/status in its worktree, test processes with ~0% CPU or older than 25 min. If stuck, kill only that worktree's hung test/browser processes, drop its test_lh_* database, then steer or resume the worker with a narrowed task. If it is a long but healthy run, leave it alone."
+		mark_notified "$id"
+		echo "$(date '+%F %T') notified lead about $id (idle ${idle_min} min)"
+	done < <(
+		for root in "${ROOTS[@]}"; do
+			[ -d "$root" ] && find "$root" -path '*/tasks/*.output' -type f -mmin "-$((MAX_AGE_H * 60))" 2>/dev/null
+		done
+	)
+}
+
+echo "pi-agent-watch: target=$TARGET stale=${STALE_MIN}m interval=${INTERVAL}s cooldown=${COOLDOWN_MIN}m roots=${ROOTS[*]}"
+while true; do
+	scan
+	[ "$ONCE" = 1 ] && break
+	sleep "$INTERVAL"
+done

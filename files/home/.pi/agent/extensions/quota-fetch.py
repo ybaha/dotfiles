@@ -236,9 +236,19 @@ def fetch_minimax() -> dict:
 
 
 def fetch_cursor() -> dict:
-    """Just the launchd state — `running`/`stopped` for the IDE proxy."""
+    """Just the service state — `running`/`stopped` for the IDE proxy (launchd or systemd --user)."""
     if not shutil.which("launchctl"):
-        return {"fetchedAt": NOW_MS, "live": False, "state": "unknown", "detail": "launchctl missing"}
+        if not shutil.which("systemctl"):
+            return {"fetchedAt": NOW_MS, "live": False, "state": "unknown", "detail": "no launchctl or systemctl"}
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "is-active", "cursor2api-ide.service"],
+                capture_output=True, text=True, timeout=3,
+            )
+            running = result.stdout.strip() == "active"
+            return {"fetchedAt": NOW_MS, "live": True, "state": "running" if running else "stopped"}
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {"fetchedAt": NOW_MS, "live": False, "state": "unknown", "detail": str(exc)}
     try:
         result = subprocess.run(
             ["launchctl", "print", f"gui/{os.getuid()}/com.baha.cursor2api-ide"],

@@ -199,12 +199,12 @@ name = "Ovis (herdr-web-ui on herdr-core)"
 purpose = "Browser/phone front end for the owner's coding-agent terminals on dell, the MacBook and lenovo. One empty shell here; the sessions live on the other machines (hc machines)."
 status = "running"
 verified = "live"
-host = "CT 110 `ovis` on `home` (Debian 12, user `baha`, systemd unit `ovis`, herdr-core 0.1.17, Bun; ~114 MB RAM). Source checkout `/home/baha/ovis-src` at tag v0.5.3."
+host = "CT 110 `ovis` on `home` (Debian 12, user `baha`, systemd unit `ovis`, herdr-core 0.1.17, Bun; ~114 MB RAM). Source checkout `/home/baha/ovis-src` on local branch `local/pr3833-hc-load` (tag v0.5.3 + upstream PR #3833 + local patches: PC load, worktree nesting and a per-machine server for hc machines (bridge-entry.ts, run on each machine over ssh so Chat reads that machine's own transcripts; code deployed with `scripts/deploy-hc-remote.sh <target|local>` from the Dell build dir ~/code/ovis-build/src to `~/.local/share/ovis-hc/current` on dell; a machine without it is served from the CT as before; redeploy after any server change); roll back with `git switch --detach v0.5.3`, `rm -rf dist && mv dist.bak-v0.5.3 dist`, restart `ovis`). The MacBook and dell have its Pi extension `herdr-web-ui.js` (gitignored) so Pi chat opens; the MacBook's hc also lists `ovis`, `dell` and `lenovo` as machines."
 url = "https://ovis.{tailnet}"
 auth = "Tailscale serve states the owner's login, so own devices need no code; other logins are refused. No token on disk. Other PCs are reached over SSH with `/home/baha/.ssh/id_ed25519` in CT 110 (authorized on dell, MacBook, lenovo)."
 start_here = "Open the URL in a browser. Machines are added with `hc machine add baha@<host> --name <n>` on the host."
 health_url = "https://ovis.{tailnet}/api/health"
-gotchas = ["Runtime is pinned with `OVIS_RUNTIME=herdr-core` in /etc/systemd/system/ovis.service, so Settings cannot switch it.", "Not built on the CT: Vite needs more than its 1.5 GB RAM; build `dist` elsewhere and copy it to /home/baha/ovis-src/dist."]
+gotchas = ["Runtime is pinned with `OVIS_RUNTIME=herdr-core` in /etc/systemd/system/ovis.service, so Settings cannot switch it.", "Not built on the CT: Vite needs more than its 1.5 GB RAM; build `dist` elsewhere (dell: ~/code/ovis-build/src, `bun run build`) and copy it to /home/baha/ovis-src/dist.", "Restart as root from `home`: `pct exec 110 -- systemctl restart ovis` (baha has no sudo there). /etc/pam.d/common-session has pam_systemd commented out (logind cannot start in this LXC, which made every ssh login take 25 s)."]
 
 [[guest]]
 id = "VM 100"

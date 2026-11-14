@@ -166,7 +166,7 @@ export default function (pi: ExtensionAPI) {
 					if (extensionStatuses.size === 0) return [lineOne, lineTwo];
 					const statusLine = Array.from(extensionStatuses.entries())
 						.sort(([a], [b]) => a.localeCompare(b))
-						.map(([, text]) => text.replace(/[\\r\\n\\t]/g, " ").replace(/ +/g, " ").trim())
+						.map(([, text]) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim())
 						.join(" ");
 					return [lineOne, lineTwo, truncateToWidth(statusLine, width, "...")];
 				},

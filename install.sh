@@ -116,6 +116,7 @@ link_pi_paths() {
   link_path .local/share/preview-hub
   link_path .local/bin/previewctl
   link_path .local/bin/pi-chief
+  link_path .local/bin/pi-agent-watch
   link_path .local/bin/pi-dotfiles-push
 }
 
