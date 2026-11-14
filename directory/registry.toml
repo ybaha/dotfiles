@@ -192,6 +192,20 @@ name = "clawd and phones"
 kind = "Offline/phone devices"
 role = "clawd and iphone-15 are offline for weeks."
 
+[[service]]
+id = "ovis"
+tags = ["web", "dev-tool", "terminals"]
+name = "Ovis (herdr-web-ui on herdr-core)"
+purpose = "Browser/phone front end for the owner's coding-agent terminals on dell, the MacBook and lenovo. One empty shell here; the sessions live on the other machines (hc machines)."
+status = "running"
+verified = "live"
+host = "CT 110 `ovis` on `home` (Debian 12, user `baha`, systemd unit `ovis`, herdr-core 0.1.17, Bun; ~114 MB RAM). Source checkout `/home/baha/ovis-src` at tag v0.5.3."
+url = "https://ovis.{tailnet}"
+auth = "Tailscale serve states the owner's login, so own devices need no code; other logins are refused. No token on disk. Other PCs are reached over SSH with `/home/baha/.ssh/id_ed25519` in CT 110 (authorized on dell, MacBook, lenovo)."
+start_here = "Open the URL in a browser. Machines are added with `hc machine add baha@<host> --name <n>` on the host."
+health_url = "https://ovis.{tailnet}/api/health"
+gotchas = ["Runtime is pinned with `OVIS_RUNTIME=herdr-core` in /etc/systemd/system/ovis.service, so Settings cannot switch it.", "Not built on the CT: Vite needs more than its 1.5 GB RAM; build `dist` elsewhere and copy it to /home/baha/ovis-src/dist."]
+
 [[guest]]
 id = "VM 100"
 name = "homeassistant"
@@ -252,3 +266,9 @@ name = "agents"
 status = "running"
 ram = "192 MB"
 note = "This directory; own tailnet node."
+[[guest]]
+id = "CT 110"
+name = "ovis"
+status = "running"
+ram = "1536 MB"
+note = "Ovis host (herdr-web-ui on herdr-core); own tailnet node."
