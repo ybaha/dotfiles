@@ -38,6 +38,7 @@
   "extensions": [
     "-extensions/herdr-agent-state.ts",
     "-extensions/herdr-subagent-state/index.ts",
-    "-extensions/worktree-lead.ts"
+    "-extensions/worktree-lead.ts",
+    "-extensions/worktree-watcher-status.ts"
   ]
 }

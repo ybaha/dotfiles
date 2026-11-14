@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -28,6 +28,35 @@ const {
 	footerText,
 	writeNotifiedAtomic,
 } = await loadModule.import(extPath);
+
+const { default: installWatcherStatus } = await loadModule.import(join(here, "../files/home/.pi/agent/extensions/worktree-watcher-status.ts"));
+
+test("legacy watcher status is excluded and inert without the old runtime", () => {
+	const settings = JSON.parse(readFileSync(join(here, "../files/home/.pi/agent/settings.json"), "utf8"));
+	assert.ok(settings.extensions.includes("-extensions/worktree-watcher-status.ts"));
+	const saved = Object.fromEntries(["HC_TERMINAL_ID", "HERDR_ENV", "PATH"].map(key => [key, process.env[key]]));
+	const dir = mkdtempSync(join(tmpdir(), "watcher-disabled-"));
+	const pi = new Proxy({}, { get: () => assert.fail("disabled watcher must not register handlers or start polling") });
+	try {
+		process.env.PATH = dir;
+		process.env.HERDR_ENV = "1";
+		delete process.env.HC_TERMINAL_ID;
+		installWatcherStatus(pi); // Missing herdr executable, even with stale legacy env.
+		const executable = join(dir, "herdr");
+		writeFileSync(executable, "#!/bin/sh\nexit 99\n");
+		chmodSync(executable, 0o700);
+		delete process.env.HERDR_ENV;
+		installWatcherStatus(pi); // Missing legacy env, even with an installed executable.
+		process.env.HERDR_ENV = "1";
+		process.env.HC_TERMINAL_ID = "t7";
+		installWatcherStatus(pi); // hc wins over inherited legacy env/executable.
+	} finally {
+		for (const [key, value] of Object.entries(saved)) {
+			if (value === undefined) delete process.env[key]; else process.env[key] = value;
+		}
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
 
 test("hc and non-Herdr startup are inert, even with old watcher state", () => {
 	const saved = { HC_TERMINAL_ID: process.env.HC_TERMINAL_ID, HERDR_ENV: process.env.HERDR_ENV };

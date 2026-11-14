@@ -10,8 +10,8 @@
  * Stops polling when the session ends.
  */
 
-import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { accessSync, closeSync, constants, existsSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
 
 const STATE_DIR = join(process.env.HOME ?? "~", ".pi/agent/state/worktree-watchers");
 const POLL_MS = 2000;
@@ -103,6 +103,12 @@ function humanStatus(slug: string, line: string): string {
 }
 
 export default function (pi: import("@earendil-works/pi-coding-agent").ExtensionAPI) {
+	if (process.env.HC_TERMINAL_ID || process.env.HERDR_ENV !== "1") return;
+	const herdrInstalled = (process.env.PATH ?? "").split(delimiter).some(dir => {
+		try { accessSync(join(dir, "herdr"), constants.X_OK); return true; } catch { return false; }
+	});
+	if (!herdrInstalled) return;
+
 	function poll(slug: string, watcher: Watcher) {
 		const last = tailLastLine(watcher.logFile);
 		if (!last) {
