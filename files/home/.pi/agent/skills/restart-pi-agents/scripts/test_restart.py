@@ -57,7 +57,7 @@ class RestartTests(unittest.TestCase):
             self.stopped = True
             return {}
         if args[0] == 'read':
-            self.assertEqual(args, ('read', '--lines', '400', 't7'))
+            self.assertEqual(args, ('read', '--lines', str(r.RESUME_READ_LINES), 't7'))
             return self.footer if self.stopped else self.before_output
         if args[0] == 'run':
             self.assertTrue(self.stopped)
@@ -110,19 +110,25 @@ class RestartTests(unittest.TestCase):
         self.assertLess(read_indexes[0], quit_index)
         self.assertGreater(read_indexes[1], quit_index)
 
-    def test_freshness_window_is_400_lines_and_saturation_is_refused(self):
-        self.assertEqual(r.RESUME_READ_LINES, 400)
+    def test_saturated_baseline_is_refused_before_any_input(self):
+        n = r.RESUME_READ_LINES
+        old = f'To resume this session: pi --session {A}\n'
+        self.before_output, self.footer = 'history\n' * (n - 1) + old, old
+        with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
+            with self.assertRaisesRegex(RuntimeError, 'Pi left running, not restarted'):
+                r.restart(self.a)
+        self.assertFalse(any(call.args[0] in ('send', 'interrupt', 'run') for call in cli.call_args_list))
+        self.assertFalse(self.stopped)
+
+    def test_saturated_after_read_is_refused_without_relaunch(self):
+        n = r.RESUME_READ_LINES
         old = f'To resume this session: pi --session {A}\n'
         new = f'To resume this session: pi --session {B}\n'
-        for before, after in [('history\n' * 399 + old, old + new),
-                              (old, 'history\n' * 398 + old + new)]:
-            with self.subTest(before_lines=len(before.splitlines()), after_lines=len(after.splitlines())):
-                self.stopped = False
-                self.before_output, self.footer = before, after
-                with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
-                    with self.assertRaisesRegex(RuntimeError, 'already stopped.*400-line bound'):
-                        r.restart(self.a)
-                self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
+        self.before_output, self.footer = old, 'history\n' * (n - 2) + old + new
+        with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
+            with self.assertRaisesRegex(RuntimeError, f'already stopped.*{n}-line bound'):
+                r.restart(self.a)
+        self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
 
     def test_wrapped_truncated_or_ambiguous_tokens_are_refused(self):
         prefix = B[:20]
@@ -151,9 +157,9 @@ class RestartTests(unittest.TestCase):
     def test_incomplete_escape_sequence_cannot_prove_freshness(self):
         self.before_output = '\x1b]unterminated title'
         with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
-            with self.assertRaisesRegex(RuntimeError, 'already stopped.*freshness unproven'):
+            with self.assertRaisesRegex(RuntimeError, 'Pi left running, not restarted'):
                 r.restart(self.a)
-        self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
+        self.assertFalse(any(call.args[0] in ('send', 'interrupt', 'run') for call in cli.call_args_list))
 
     def test_changed_scrollback_prefix_cannot_prove_freshness(self):
         self.before_output = f'To resume this session: pi --session {A}\n'
@@ -357,7 +363,7 @@ class RestartTests(unittest.TestCase):
     def test_cli_read_is_plain_text_not_json(self):
         response = subprocess.CompletedProcess(['hc'], 0, self.footer, '')
         with patch.object(r.subprocess, 'run', return_value=response):
-            self.assertEqual(r.cli('read', '--lines', '400', 't7'), self.footer)
+            self.assertEqual(r.cli('read', '--lines', str(r.RESUME_READ_LINES), 't7'), self.footer)
 
     def test_ls_filters_non_pi_finished(self):
         with patch.object(r, 'cli', return_value={'terminals': [dict(self.a), dict(self.a, agent='zsh'), dict(self.a, state='finished')]}):

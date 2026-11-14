@@ -16,7 +16,7 @@ from typing import NamedTuple
 import uuid
 
 
-RESUME_READ_LINES = 400
+RESUME_READ_LINES = 3000
 RESUME_PATTERN = re.compile(r'To resume this session: pi --session (\S+)')
 SESSION_ID_PATTERN = re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
 MANUAL_LAUNCHER = 'shell-hosted or unknown launcher; restart manually'
@@ -212,6 +212,9 @@ def restart(info, interrupt=False):
         before = resume_snapshot(cli('read', '--lines', str(RESUME_READ_LINES), address))
     except Exception:
         raise RuntimeError(f'{address} (cwd {live["cwd"]}): cannot read the pre-quit resume baseline; refusing input') from None
+    if before.bounded or before.incomplete_escapes:
+        # Decided before any input: after /quit it is too late, Pi would already be stopped.
+        raise RuntimeError(f'{address} (cwd {live["cwd"]}): terminal history fills the {RESUME_READ_LINES}-line resume window or has unparsable escapes; Pi left running, not restarted')
     state = status(live)
     if state not in ('idle', 'done') and (state != 'working' or not interrupt):
         raise RuntimeError(f'{address}: {state}; not restarted (working requires --interrupt)')
