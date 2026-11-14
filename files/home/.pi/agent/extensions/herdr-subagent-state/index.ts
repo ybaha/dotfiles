@@ -17,7 +17,7 @@ type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 type Register = (event: string, handler: Handler) => () => void;
 
 function herdrEnabled(): boolean {
-	return process.env.HERDR_ENV === "1" && !!process.env.HERDR_SOCKET_PATH && !!process.env.HERDR_PANE_ID;
+	return !process.env.HC_TERMINAL_ID && process.env.HERDR_ENV === "1" && !!process.env.HERDR_SOCKET_PATH && !!process.env.HERDR_PANE_ID;
 }
 
 function hasSubagentsRunning(): boolean {

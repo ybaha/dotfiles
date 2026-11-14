@@ -159,6 +159,8 @@ function loadLeadWorkers(): WatcherState[] {
 }
 
 export default function (pi: import("@earendil-works/pi-coding-agent").ExtensionAPI) {
+	// hc owns status; stale watcher files must not trigger turns or close old panes.
+	if (process.env.HC_TERMINAL_ID || process.env.HERDR_ENV !== "1") return;
 	const workerBySlug = (slug: string) => loadLeadWorkers().find((x) => x.slug === slug);
 	function poll(w: WatcherState) {
 		const fresh = workerBySlug(w.slug) ?? w;

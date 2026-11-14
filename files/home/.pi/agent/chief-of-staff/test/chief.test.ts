@@ -8,7 +8,7 @@ import { Store, loadConfig, looksLikeSecret, ovisLink, setConfig, type Config } 
 import { TelegramError, handleMessage, questionMessage, runWorker, sendOutbox, sendQueued, statusLine, type Api } from "../telegram.ts";
 import { assignLead, fireMessage, setHerdr, setNowMs, setWatchIdleMs, startWorktree, startWorker, tickWatch, waitingAgentsText } from "../herdr.ts";
 import { setModelsDeps } from "../models.ts";
-import chief from "../index.ts";
+import { installLegacyChief as chief } from "../index.ts";
 
 const ME = "1912767327";
 const config: Config = { ovisBaseUrl: "https://ovis.example.ts.net:8443/", machineId: "mac", telegramUserId: ME };

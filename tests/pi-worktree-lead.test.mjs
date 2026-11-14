@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,32 +8,7 @@ import test from "node:test";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-function resolvePiRoot() {
-	const localRequire = createRequire(import.meta.url);
-	const candidates = [];
-	try {
-		candidates.push(dirname(localRequire.resolve("@earendil-works/pi-coding-agent/package.json")));
-	} catch {}
-	try {
-		candidates.push(join(execFileSync("npm", ["root", "-g"], { encoding: "utf8", timeout: 10_000 }).trim(), "@earendil-works/pi-coding-agent"));
-	} catch {}
-	const miseNode = join(process.env.HOME ?? "", ".local/share/mise/installs/node");
-	if (existsSync(miseNode)) {
-		for (const ver of readdirSync(miseNode)) {
-			candidates.push(join(miseNode, ver, "lib/node_modules/@earendil-works/pi-coding-agent"));
-		}
-	}
-	const seen = new Set();
-	for (const root of candidates) {
-		if (!root || seen.has(root)) continue;
-		seen.add(root);
-		try {
-			createRequire(join(root, "package.json"))("jiti");
-			return root;
-		} catch {}
-	}
-	throw new Error("pi-coding-agent with jiti not found");
-}
+import { resolvePiRoot } from "./pi-test-runtime.mjs";
 
 const piRoot = resolvePiRoot();
 const requireFromPi = createRequire(join(piRoot, "package.json"));
@@ -44,6 +18,7 @@ const loadModule = requireFromPi("jiti")(import.meta.url, {
 });
 const extPath = join(here, "../files/home/.pi/agent/extensions/worktree-lead.ts");
 const {
+	default: installWorktreeLead,
 	parseLogLine,
 	lineTimeMs,
 	latestRelevant,
@@ -53,6 +28,21 @@ const {
 	footerText,
 	writeNotifiedAtomic,
 } = await loadModule.import(extPath);
+
+test("hc and non-Herdr startup are inert, even with old watcher state", () => {
+	const saved = { HC_TERMINAL_ID: process.env.HC_TERMINAL_ID, HERDR_ENV: process.env.HERDR_ENV };
+	try {
+		for (const hc of ["t7", undefined]) {
+			if (hc) process.env.HC_TERMINAL_ID = hc; else delete process.env.HC_TERMINAL_ID;
+			if (hc) process.env.HERDR_ENV = "1"; else delete process.env.HERDR_ENV;
+			installWorktreeLead(new Proxy({}, { get: () => assert.fail("must register nothing") }));
+		}
+	} finally {
+		for (const [key, value] of Object.entries(saved)) {
+			if (value === undefined) delete process.env[key]; else process.env[key] = value;
+		}
+	}
+});
 
 function fixedNow(h, mi, s) {
 	const d = new Date(2026, 10, 11, h, mi, s, 0);

@@ -1,21 +1,15 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync, symlinkSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { resolvePiRoot } from "./pi-test-runtime.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const localRequire = createRequire(import.meta.url);
-let piRoot;
-try {
-	piRoot = dirname(localRequire.resolve("@earendil-works/pi-coding-agent/package.json"));
-} catch {
-	piRoot = join(execFileSync("npm", ["root", "-g"], { encoding: "utf8", timeout: 10000 }).trim(), "@earendil-works/pi-coding-agent");
-}
+const piRoot = resolvePiRoot();
 const requireFromPi = createRequire(join(piRoot, "package.json"));
 const createJiti = requireFromPi("jiti");
 const loadModule = createJiti(import.meta.url, { moduleCache: false });
@@ -28,6 +22,7 @@ const MANAGER_KEY = Symbol.for("pi-subagents:manager");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 async function withEnvironment(overrides, run) {
+	overrides = { HC_TERMINAL_ID: undefined, ...overrides };
 	const saved = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
 	try {
 		for (const [key, value] of Object.entries(overrides)) {
@@ -157,7 +152,7 @@ async function settleMain(pi, ctx) {
 }
 
 // Uses Pi's actual resolver, not a string-only approximation of exclusions.
-test("resource discovery enables only the wrapper, with relative and symlinked agent paths", async () => {
+test("resource discovery disables both legacy reporters", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "pi-herdr-resources-"));
 	try {
 		const agentDir = join(dir, "agent");
@@ -166,9 +161,7 @@ test("resource discovery enables only the wrapper, with relative and symlinked a
 		mkdirSync(cwd);
 		writeFileSync(join(agentDir, "extensions/herdr-agent-state.ts"), "export default function () {}\n");
 		writeFileSync(join(agentDir, "extensions/herdr-subagent-state/index.ts"), "export default function () {}\n");
-		const alias = join(dir, "agent-link");
-		symlinkSync(agentDir, alias, "dir");
-		const paths = [agentDir, alias];
+		const paths = [agentDir];
 		if (existsSync(join(extensionDir, "herdr-agent-state.ts"))) paths.push(join(here, "../files/home/.pi/agent"));
 		for (const path of paths) {
 			const manager = new DefaultPackageManager({ cwd, agentDir: path, settingsManager: SettingsManager.inMemory({ extensions: settings.extensions }) });
@@ -178,7 +171,7 @@ test("resource discovery enables only the wrapper, with relative and symlinked a
 			assert.equal(managed.length, 1);
 			assert.equal(managed[0].enabled, false);
 			assert.equal(wrapped.length, 1);
-			assert.equal(wrapped[0].enabled, true);
+			assert.equal(wrapped[0].enabled, false);
 		}
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -188,6 +181,15 @@ test("no initialization outside Herdr, even if the host has inherited pane varia
 		const pi = mockPi();
 		await wrapper.default(pi);
 		await wrapper.installHerdrSubagentState(pi, () => assert.fail("managed reporter must not load"));
+		assert.equal(pi.handlerCount(), 0);
+	});
+});
+
+test("hc terminals never initialize legacy reporters, even with inherited Herdr variables", async () => {
+	await withEnvironment({ HC_TERMINAL_ID: "t7", HERDR_ENV: "1", HERDR_SOCKET_PATH: "/tmp/unused.sock", HERDR_PANE_ID: "old" }, async () => {
+		const pi = mockPi();
+		await wrapper.default(pi);
+		await wrapper.installHerdrSubagentState(pi, () => assert.fail("must not load on hc"));
 		assert.equal(pi.handlerCount(), 0);
 	});
 });

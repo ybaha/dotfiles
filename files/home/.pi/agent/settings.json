@@ -36,6 +36,8 @@
     "{\"source\":\"npm:@tintinweb/pi-subagents@0.21.0\",\"scope\":\"user\"}": "0.21.0"
   },
   "extensions": [
-    "-extensions/herdr-agent-state.ts"
+    "-extensions/herdr-agent-state.ts",
+    "-extensions/herdr-subagent-state/index.ts",
+    "-extensions/worktree-lead.ts"
   ]
 }

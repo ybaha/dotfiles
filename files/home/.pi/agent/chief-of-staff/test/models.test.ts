@@ -20,7 +20,7 @@ import {
 } from "../models.ts";
 import { assignLead, setHerdr, startWorktree, startWorker } from "../herdr.ts";
 import { Store } from "../store.ts";
-import chief from "../index.ts";
+import { installLegacyChief as chief } from "../index.ts";
 
 let cacheDir: string;
 let now: number;

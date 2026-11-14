@@ -1,3 +1,4 @@
+import { legacyHerdrAvailable } from "./legacy-runtime.ts";
 import { CONFIG_KEYS, Store, configDir, dataDir, loadConfig, readToken, setConfig, tokenFile, validToken, writePrivate } from "./store.ts";
 import { quotaLine } from "./models.ts";
 import { runWorker, telegramApi } from "./telegram.ts";
@@ -27,6 +28,10 @@ async function readStdin(): Promise<string> {
 }
 
 async function main([cmd, ...args]: string[]): Promise<void> {
+	if (!legacyHerdrAvailable()) {
+		console.error("Chief is disabled pending an hc port; nothing started.");
+		return;
+	}
 	switch (cmd) {
 		case "config": {
 			if (args.length >= 2) setConfig(args[0], args.slice(1).join(" "));

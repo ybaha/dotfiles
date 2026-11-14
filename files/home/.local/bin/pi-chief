@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${HC_TERMINAL_ID:-}" || "${HERDR_ENV:-}" != 1 ]] || ! command -v herdr >/dev/null 2>&1; then
+  printf '%s\n' 'Chief is disabled pending an hc port; no session or worker started.' >&2
+  exit 0
+fi
 ROOT="${PI_CHIEF_ROOT:-$HOME/.pi/agent/chief-of-staff}"
 cli() { exec node --disable-warning=ExperimentalWarning "$ROOT/cli.ts" "$@"; }
 

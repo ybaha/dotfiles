@@ -1,4 +1,8 @@
-# Pi chief of staff
+# Pi chief of staff — disabled pending an hc port
+
+The owner no longer runs Chief. **Do not follow the historical setup/run instructions below on hc.** No Chief session or Telegram worker is started when `HC_TERMINAL_ID` is set, `HERDR_ENV` is not `1`, or the old `herdr` executable is missing. The Pi wrapper checks this before importing SQLite/Telegram code; the CLI also exits without starting anything. Retained data/credentials are untouched. Any hc port or replacement is a separate decision; see `docs/agent-stack/HC.md` in dotfiles.
+
+## Historical implementation reference (not current setup instructions)
 
 A Pi extension that gives one chief session durable memory and a Telegram line to Baha. No dependencies; Node 22.18+ (built-in SQLite and type stripping).
 

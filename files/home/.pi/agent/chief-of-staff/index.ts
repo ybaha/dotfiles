@@ -1,3 +1,4 @@
+import { legacyHerdrAvailable } from "./legacy-runtime.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Store, coreFiles, loadConfig, looksLikeSecret, readOptional, writePrivate } from "./store.ts";
 import { assignLead, agentsOverviewText, resumeAgent, startWorktree, startWorker, tickWatch, validateWorkerName, waitingAgentsText } from "./herdr.ts";
@@ -54,6 +55,12 @@ function recipientOf(role: Role): string {
 }
 
 export default function chief(pi: ExtensionAPI) {
+	if (!legacyHerdrAvailable()) return;
+	installLegacyChief(pi);
+}
+
+// Retained for isolated legacy tests, not used by hc startup.
+export function installLegacyChief(pi: ExtensionAPI) {
 	let store: Store | undefined;
 	let role: Role | undefined;
 	let poll: ReturnType<typeof setInterval> | undefined;
