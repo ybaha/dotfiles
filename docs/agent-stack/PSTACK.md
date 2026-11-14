@@ -2,7 +2,7 @@
 
 ## Recommendation
 
-Borrow the engineering workflow, not the orchestration stack. Our Pi roles, provider routing, quota checks, and Herdr worktrees already supply most of the execution machinery. The missing layer is repeatable task-specific design and verification contracts.
+Borrow the engineering workflow, not the orchestration stack. Our Pi roles, provider routing, quota checks, and git worktrees with labeled hc terminals already supply most of the execution machinery. The missing layer is repeatable task-specific design and verification contracts.
 
 The approved first step is now four independent, explicit-command-only Pi skills: `bug-fix`, `design-change`, `review-change`, and `create-verification-skill`. No central mode, package, new agents, nested delegation, or extra autonomy was added. The verification generator still needs a chosen real project before it can produce and prove a project-specific skill.
 
@@ -59,14 +59,14 @@ Use a feature map of a few concrete user journeys rather than a giant generic te
 |---|---|
 | Cursor `Task`, `poteto-agent`, `generalPurpose`, `.cursor/rules/*.mdc`, `/loop`, custom-mode persistence, cloud workers | Different APIs and lifecycle. Use existing Pi Agent roles and explicit skill loading. A Pi skill does not automatically become Cursor's persistent mode. |
 | Default Grok/Opus panels and automatic model fallback | Our approved execution uses Composer, Sol/Luna, and Claude through `claude-bridge`. Quota/availability must be checked. Pinned agent frontmatter overrides caller model arguments. |
-| Nested coordinator trees | `maxSubagentDepth: 1` deliberately forbids grandchildren. Temporary children are not Herdr workspaces. |
+| Nested coordinator trees | `maxSubagentDepth: 1` deliberately forbids grandchildren. Temporary children are not durable hc terminals/workspaces. |
 | Mandatory multi-model design for every function-boundary change and mandatory arena implementation | Excess cost and complexity for routine work; current workers also cannot spawn. Escalate only for meaningful uncertainty or risk. |
 | Broad "just do it" authority over MCPs, chat, tickets, evals, adjacent fixes, and shipping | The task does not grant all external actions or scope changes. Preserve package-install, host-change, product/architecture, deployment, destructive-action, and secret-handling gates. |
 | History-mining recall/pickup and transcript-based eval inspection | Dotfiles forbids reading auth/session material. Use explicit sanitized checkpoints, source, supplied requirements, and verification receipts. |
 | Always open a PR, commit liberally, or pause by automatically committing dirty work | Those actions need an appropriate task mandate and careful separation of pre-existing changes. A read-only investigation remains read-only. |
 | Blanket comment stripping | Existing `remove-dumb-comments` requires approval and preserves useful rationale. Do not replace it with automatic deletion. |
 | Bundled control/deslop/create-skill dependencies | Some workflows require `cursor-team-kit`, Cursor built-ins, MCPs, or environment-specific harnesses that we do not have by default. Reuse available project tools; ask before installing anything. |
-| Bundled orchestration/state/bootstrap scripts | Do not run unseen helpers. Bootstrap can install dependencies; state paths require separate crash-safety review. Our lifecycle is already covered by Pi/Herdr. |
+| Bundled orchestration/state/bootstrap scripts | Do not run unseen helpers. Bootstrap can install dependencies; state paths require separate crash-safety review. Our lifecycle is already covered by Pi/hc; see [HC.md](HC.md). |
 | Arbitrary upstream frontmatter | Normalize to Pi's skill spec (`name`, `description`, optional `disable-model-invocation`). Cursor-specific `mode`, reminder, icon, and model-rule behavior do not transfer. |
 
 For future stateful orchestration, receipt processing should be durable claim/ack, with idempotent reconciliation and verifier-owned final verdicts. Do not assume an inbox file or "verified" ledger is an authorization boundary. A separate background/foreground limit also means `maxConcurrent: 2` is not a global spend cap; see [SUBAGENTS.md](SUBAGENTS.md).

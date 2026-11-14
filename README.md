@@ -1,6 +1,6 @@
 # Dotfiles
 
-My portable developer cockpit: macOS-first dotfiles, agent skills, Pi/Herdr integration, and a Linux-safe CLI baseline.
+My portable developer cockpit: macOS-first dotfiles, agent skills, Pi/hc workflows, and a Linux-safe CLI baseline.
 
 ## Install
 
@@ -29,7 +29,7 @@ cd ~/code/dotfiles
 ## Included
 
 - Zsh with the existing Antigen `dst` theme and plugin set
-- Git, GitHub CLI, htop, btop, Zed, and Herdr preferences
+- Git, GitHub CLI, htop, btop, and Zed preferences (herdr-app configuration stays app-managed)
 - Pi settings/extensions/skills and global `AGENTS.md` rules; portable Claude/shared-agent skills
 - On-demand `/skill:browser-use` (Browser Use Pi SDK); run its `scripts/setup` once per machine. The SDK installs to `~/.local/share/browser-use-pi` and needs its own `OPENROUTER_API_KEY`, kept out of the repo
 - Optional archived VS Code preferences
@@ -37,15 +37,24 @@ cd ~/code/dotfiles
 
 Git identity/credential helpers belong in ignored `~/.gitconfig.local`; host-specific shell paths belong in ignored `~/.config/zsh/local.zsh`; network values (tailnet host names, Nextcloud URL) belong in ignored `~/.config/pi-agent/local.env`. `install.sh` creates both from the tracked `.example` files, and docs use placeholders such as `<your-tailnet>`.
 
-## Pi and Herdr on another machine
+## Pi and hc on another machine
 
-Pull dotfiles, inspect `./install.sh --dry-run`, then link with `./install.sh` only after reviewing replacements/backups. Install Pi and Herdr separately; run `herdr integration install pi` on **each machine**, then check `herdr integration status`. The integration file under `~/.pi/agent/extensions/` is generated locally, not synced. Run `/reload` in an open Pi session after changing skills/instructions; new sessions pick them up at startup. Pinned Pi packages are upgraded deliberately, not automatically. Herdr workflow plugins are separate installations (`herdr plugin list`), not Pi skills.
+Pull dotfiles, inspect `./install.sh --dry-run`, then link with `./install.sh` only after reviewing replacements/backups. Install Pi and hc (herdr-core) separately. Use `hc --skill` for terminals and `herdr-app --skill` for window arrangement; the old `herdr` TUI CLI and its integration/plugin installers are not required. hc observes Pi status directly. Legacy reporters are disabled, and Chief is inert pending an hc port. Neither legacy `~/.config/herdr/config.toml` nor app-managed `~/.config/herdr-app` is linked. See [HC.md](docs/agent-stack/HC.md) for labels, command mappings, worktrees and session-preserving restarts. Run `/reload` after changed instructions/skills only when subagents have finished. Pinned Pi packages are upgraded deliberately, not automatically.
 
 Dotfiles is the only active source for shared Pi settings, models, global instructions, skills, extensions, and short [agent-stack guides](docs/agent-stack/README.md). Pi loads only the global instructions automatically—not every guide. Review the dry run before linking over existing settings/models. Keep auth and host-specific service state local; `pi-orchestra` is an archived repo, not a runtime dependency.
 
+## hc migration checks
+
+```sh
+timeout 180s bash tests/run-hc-tests.sh  # mocked hc; no installs, links or live terminal control
+timeout 30s ./install.sh --dry-run
+```
+
+See [HC.md](docs/agent-stack/HC.md#validation-boundary) for untested runtime behavior and retained legacy-suite limitations.
+
 ## Safety
 
-No credentials, tokens, sessions, histories, caches, logs, databases, virtualenvs, or application runtime state are tracked. Herdr includes only `config.toml`; Pi/Claude auth and sessions are excluded.
+No credentials, tokens, sessions, histories, caches, logs, databases, virtualenvs, or application runtime state are tracked. Legacy Herdr `config.toml` is retained only as an uninstalled reference; hc/herdr-app runtime state and Pi/Claude auth/sessions are excluded.
 
 ## Publishing a public copy
 

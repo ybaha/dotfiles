@@ -33,7 +33,7 @@ These behaviors are from the installed package's `README.md` (Persistent setting
 
 ## Keep the main session responsive
 
-Pi processes user steering after the current response and its tool-call batch. A blocking child call keeps that batch open even when the main model is doing no computation. This is not a Herdr workspace limit. `Enter` steers after the batch; `Alt+Enter` deliberately queues a follow-up until the current task ends.
+Pi processes user steering after the current response and its tool-call batch. A blocking child call keeps that batch open even when the main model is doing no computation. This is not an hc terminal/workspace limit. `Enter` steers after the batch; `Alt+Enter` deliberately queues a follow-up until the current task ends.
 
 For a currently running foreground Agent call, press **Ctrl+B** in Pi's prompt editor to hand running foreground calls to the background without restarting their work. Alternatively, open one child's viewer and press **b**. Other blocking tools in that batch can still delay the main session. Queued foreground calls and foreground resumes are not eligible for this handoff.
 
@@ -55,13 +55,13 @@ A useful brief states:
 4. Acceptance criteria and exact checks; distinguish required runtime proof from static review.
 5. Time/turn budget, blockers to report, and expected concise result format.
 
-Keep one writer per worktree. Temporary children do not get durable Herdr panes. Use `/skill:worktree` when work needs an independent durable branch/workspace; Agent's temporary worktree isolation is a different lifecycle and starts from committed state, not the parent's uncommitted edits.
+Keep one writer per worktree. Temporary children do not get durable hc terminals. Use `/skill:worktree` when work needs an independent durable branch/workspace; Agent's temporary worktree isolation is a different lifecycle and starts from committed state, not the parent's uncommitted edits.
 
 Use fresh briefs for new independent work. Resume when preserving costly child-local state is necessary; consolidate later directives into any replacement brief. Verify the actual diff and checks before claiming a child succeeded. A reviewer cannot run the proof itself under the current tool scope, so the supervisor owns execution.
 
 ## Lead + worktree workers
 
-For durable parallel branches with one supervisor, use [`/skill:lead`](../../files/home/.pi/agent/skills/lead/SKILL.md) (scripts under `skills/lead/scripts/`). It spawns Herdr worktree workers; each worker’s watcher log is registered in `~/.pi/agent/state/worktree-watchers/<slug>.json`, including an optional `lead` field (pane + cwd). The [`worktree-lead`](../../files/home/.pi/agent/extensions/worktree-lead.ts) extension runs in the lead session: footer status per worker and a follow-up message after a terminal status holds for 30s (absorbs brief `done`→`working` blips). Do not use waiter subagents to block on finish — they waste tokens and still miss events; subagent frontmatter model pins ignore caller overrides anyway (see above).
+For durable parallel branches with one supervisor, use [`/skill:lead`](../../files/home/.pi/agent/skills/lead/SKILL.md) (scripts under `skills/lead/scripts/`). It creates git worktrees and labeled hc Pi terminals (`--bg --no-parent`). Registration stays in `~/.pi/agent/state/worktree-watchers/<slug>.json` for compatibility, but records `terminal` and `lead.terminal` addresses rather than pane IDs; no watcher process is spawned. Use the scripts' `status.sh` / `prompt.sh`, `hc get/read`, and `hc wait` when an immediate dependency requires it. The legacy `worktree-lead` footer/follow-up extension and `/workers` command are disabled on hc; status comes from Pi's OSC reports. Closing approved workers retains their worktree and branch. See [HC.md](HC.md) for labels and migration boundaries. Do not use waiter subagents to block on finish — they waste tokens and still miss events; subagent frontmatter model pins ignore caller overrides anyway (see above).
 
 ## Sync and maintenance
 

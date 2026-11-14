@@ -37,6 +37,10 @@ files/home/.pi/agent/skills/omarchy-app
 **/*secret*
 **/.env*
 
+# App-managed hc / Herdr UI state is never synced or linked.
+files/home/.config/herdr-app/
+files/home/.config/herdr-core/
+
 # Agent runtime state and machine-generated integrations
 files/home/.pi/agent/extensions/herdr-agent-state.ts
 files/home/.pi/agent/auth.json

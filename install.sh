@@ -139,7 +139,7 @@ fi
 link_path .config/git/ignore
 link_path .config/gh/config.yml
 link_path .config/htop/htoprc
-link_path .config/herdr/config.toml
+# hc owns terminals; ~/.config/herdr-app is app-managed, never linked here.
 link_path .config/zsh/local.zsh.example
 link_path .config/pi-agent/local.env.example
 
@@ -147,7 +147,6 @@ link_path .config/pi-agent/local.env.example
 link_pi_paths
 link_path .claude/settings.json
 link_path .claude/statusline-command.sh
-link_path .claude/hooks/herdr-agent-state.sh
 link_path .claude/skills
 
 if [[ "$include_legacy_editors" == true ]]; then
