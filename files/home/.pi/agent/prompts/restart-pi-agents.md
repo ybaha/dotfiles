@@ -1,4 +1,4 @@
 ---
-description: Restart open Herdr Pi agents and resume their exact sessions
+description: Restart local hc Pi terminals and resume their saved sessions
 ---
-Read ~/.pi/agent/skills/restart-pi-agents/SKILL.md and follow its workflow to restart all open Pi agents in the current Herdr server, preserving their exact sessions and restarting this calling session last. This request authorizes interrupting working Pi turns for the restart; do not dismiss blocked approval dialogs. Additional instructions: $ARGUMENTS
+Read ~/.pi/agent/skills/restart-pi-agents/SKILL.md and follow its workflow to restart local hc Pi terminals, preserving saved sessions, names, cwd and grouping labels, and scheduling this caller last only after the others succeed. This request authorizes interrupting working turns; never dismiss blocked approval dialogs. Confirm newest-for-cwd session choices and any opaque launch defaults before quitting. Additional instructions: $ARGUMENTS
