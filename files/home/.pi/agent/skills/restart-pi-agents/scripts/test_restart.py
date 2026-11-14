@@ -33,6 +33,7 @@ class RestartTests(unittest.TestCase):
                   'argv': ['pi', '--no-mcp', '--session', A],
                   'labels': {'herdr.space': 'review', 'herdr.tab': 'review:t1', 'ovis.workspace': 'Review',
                              'dotfiles.worker': 'review', 'private': 'ignored'}}
+        self.before_output = ''
         self.footer = 'To resume this session: pi --session ' + B + '\n'
         self.stopped = False
         self.replacement = None
@@ -56,9 +57,8 @@ class RestartTests(unittest.TestCase):
             self.stopped = True
             return {}
         if args[0] == 'read':
-            self.assertTrue(self.stopped, 'must read only after exit')
-            self.assertEqual(args, ('read', '--lines', '40', 't7'))
-            return self.footer
+            self.assertEqual(args, ('read', '--lines', '400', 't7'))
+            return self.footer if self.stopped else self.before_output
         if args[0] == 'run':
             self.assertTrue(self.stopped)
             self.replacement = dict(copy.deepcopy(self.a), address='t8', pid=11,
@@ -89,6 +89,91 @@ class RestartTests(unittest.TestCase):
         result, _ = self.perform_restart()
         self.assertEqual(result['session'], B)
 
+    def test_stale_resume_line_without_new_exit_line_is_refused(self):
+        self.before_output = f'To resume this session: pi --session {A}\n'
+        self.footer = self.before_output + 'Exited without a resume line\n'
+        with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
+            with self.assertRaisesRegex(RuntimeError, 'already stopped.*freshness unproven') as error:
+                r.restart(self.a)
+        for expected in ('t7', '/project', str(self.path_a), str(self.path_b)):
+            self.assertIn(expected, str(error.exception))
+        self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
+
+    def test_same_id_reprinted_is_fresh_when_count_increases(self):
+        self.before_output = self.footer
+        self.footer = self.before_output * 2
+        result, calls = self.perform_restart()
+        self.assertEqual(result['session'], B)
+        read_indexes = [i for i, call in enumerate(calls) if call.args[0] == 'read']
+        quit_index = next(i for i, call in enumerate(calls) if call.args[0] == 'send')
+        self.assertEqual(len(read_indexes), 2)
+        self.assertLess(read_indexes[0], quit_index)
+        self.assertGreater(read_indexes[1], quit_index)
+
+    def test_freshness_window_is_400_lines_and_saturation_is_refused(self):
+        self.assertEqual(r.RESUME_READ_LINES, 400)
+        old = f'To resume this session: pi --session {A}\n'
+        new = f'To resume this session: pi --session {B}\n'
+        for before, after in [('history\n' * 399 + old, old + new),
+                              (old, 'history\n' * 398 + old + new)]:
+            with self.subTest(before_lines=len(before.splitlines()), after_lines=len(after.splitlines())):
+                self.stopped = False
+                self.before_output, self.footer = before, after
+                with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
+                    with self.assertRaisesRegex(RuntimeError, 'already stopped.*400-line bound'):
+                        r.restart(self.a)
+                self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
+
+    def test_wrapped_truncated_or_ambiguous_tokens_are_refused(self):
+        prefix = B[:20]
+        (self.directory / ('2026_' + prefix + '.jsonl')).touch()
+        outputs = [f'{prefix}\n{B[20:]}\n', f'{B}\ncontinued\n',
+                   str(self.path_b) + '\n.backup.jsonl\n',
+                   str(self.path_b)[:-6] + '\n.jsonl\n',
+                   B[:-1] + '\n', B + ' extra text\n']
+        for output in outputs:
+            with self.subTest(output=output):
+                self.stopped = False
+                self.footer = 'To resume this session: pi --session ' + output
+                with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
+                    with self.assertRaisesRegex(RuntimeError, 'already stopped.*(wrapped|incomplete|ambiguous)'):
+                        r.restart(self.a)
+                self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
+
+    def test_ansi_csi_and_osc_escapes_are_stripped_before_counting(self):
+        old = f'To resume this session: pi --session {A}\n'
+        self.before_output = '\x1b]0;' + self.footer + '\x07\x1b[32m' + old + '\x1b[0m\x1b(B'
+        self.assertEqual(len(r.resume_snapshot(self.before_output).matches), 1)
+        self.footer = self.before_output + '\x9d8;;https://example.invalid\x9c\x9b32m' + self.footer + '\x9b0m\x1b]8;;\x1b\\'
+        result, _ = self.perform_restart()
+        self.assertEqual(result['session'], B)
+
+    def test_incomplete_escape_sequence_cannot_prove_freshness(self):
+        self.before_output = '\x1b]unterminated title'
+        with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
+            with self.assertRaisesRegex(RuntimeError, 'already stopped.*freshness unproven'):
+                r.restart(self.a)
+        self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
+
+    def test_changed_scrollback_prefix_cannot_prove_freshness(self):
+        self.before_output = f'To resume this session: pi --session {A}\n'
+        self.footer *= 2
+        with patch.object(r, 'cli', side_effect=self.fake_hc) as cli:
+            with self.assertRaisesRegex(RuntimeError, 'already stopped.*scrollback changed'):
+                r.restart(self.a)
+        self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
+
+    def test_baseline_read_failure_never_sends_input(self):
+        self.a['status']['state'] = 'working'
+        def failed_read(*args, **kwargs):
+            if args[0] == 'read':
+                raise RuntimeError('cannot read baseline')
+            return self.fake_hc(*args, **kwargs)
+        with patch.object(r, 'cli', side_effect=failed_read) as cli:
+            with self.assertRaisesRegex(RuntimeError, 'pre-quit resume baseline; refusing input'):
+                r.restart(self.a, interrupt=True)
+        self.assert_no_input(cli)
+
     def test_exit_absolute_path_is_preserved_exactly(self):
         self.footer = 'To resume this session: pi --session ' + str(self.path_b) + '\n'
         result, calls = self.perform_restart()
@@ -96,17 +181,16 @@ class RestartTests(unittest.TestCase):
         launch = next(call.args for call in calls if call.args[0] == 'run')
         self.assertEqual(r.pi_args({'argv': ['sh', '-c', launch[-1]]})[-1], str(self.path_b))
 
-    def test_relative_exit_path_uses_terminal_cwd(self):
+    def test_relative_exit_path_is_refused_even_if_file_exists(self):
         info = dict(self.a, cwd=str(self.home))
-        path = self.home / 'relative.jsonl'
-        path.touch()
-        self.assertEqual(r.exit_session(info, 'To resume this session: pi --session relative.jsonl'),
-                         ('relative.jsonl', str(path)))
+        (self.home / 'relative.jsonl').touch()
+        with self.assertRaisesRegex(RuntimeError, 'incomplete or ambiguous'):
+            r.exit_session(info, r.resume_snapshot(''), 'To resume this session: pi --session relative.jsonl')
 
     def test_id_must_resolve_in_session_directory_not_arbitrary_cwd_file(self):
         (self.home / B).touch()
         with self.assertRaisesRegex(RuntimeError, 'already stopped.*does not resolve'):
-            r.exit_session(dict(self.a, cwd=str(self.home)), self.footer)
+            r.exit_session(dict(self.a, cwd=str(self.home)), r.resume_snapshot(''), self.footer)
 
     def test_missing_exit_path_never_falls_back(self):
         self.footer = 'To resume this session: pi --session /missing/session.jsonl\n'
@@ -139,7 +223,7 @@ class RestartTests(unittest.TestCase):
 
     def test_exit_read_failure_reports_stopped_terminal_and_candidates(self):
         def failed_read(*args, **kwargs):
-            if args[0] == 'read':
+            if args[0] == 'read' and self.stopped:
                 raise RuntimeError('failed read')
             return self.fake_hc(*args, **kwargs)
         with patch.object(r, 'cli', side_effect=failed_read) as cli:
@@ -200,7 +284,8 @@ class RestartTests(unittest.TestCase):
         with patch.object(r, 'cli', side_effect=self.fake_hc) as cli, patch.object(r, 'wait_for', side_effect=RuntimeError('still live')):
             with self.assertRaisesRegex(RuntimeError, 'still live'):
                 r.restart(self.a)
-        self.assertFalse(any(call.args[0] in ('read', 'run') for call in cli.call_args_list))
+        self.assertEqual(sum(call.args[0] == 'read' for call in cli.call_args_list), 1)
+        self.assertFalse(any(call.args[0] == 'run' for call in cli.call_args_list))
 
     def test_restart_preserves_name_cwd_labels_restrictions_and_mac_path(self):
         _, calls = self.perform_restart()
@@ -272,7 +357,7 @@ class RestartTests(unittest.TestCase):
     def test_cli_read_is_plain_text_not_json(self):
         response = subprocess.CompletedProcess(['hc'], 0, self.footer, '')
         with patch.object(r.subprocess, 'run', return_value=response):
-            self.assertEqual(r.cli('read', '--lines', '40', 't7'), self.footer)
+            self.assertEqual(r.cli('read', '--lines', '400', 't7'), self.footer)
 
     def test_ls_filters_non_pi_finished(self):
         with patch.object(r, 'cli', return_value={'terminals': [dict(self.a), dict(self.a, agent='zsh'), dict(self.a, state='finished')]}):

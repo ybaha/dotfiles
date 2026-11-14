@@ -12,9 +12,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import NamedTuple
 import uuid
 
 
+RESUME_READ_LINES = 400
+RESUME_PATTERN = re.compile(r'To resume this session: pi --session (\S+)')
+SESSION_ID_PATTERN = re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
 MANUAL_LAUNCHER = 'shell-hosted or unknown launcher; restart manually'
 
 
@@ -125,20 +129,47 @@ def stopped_failure(info, reason):
                         f'no relaunch. Candidate files (not selected): {candidates}. Resume manually.')
 
 
-def exit_session(info, output):
-    # Strip presentation escapes, never inspect private JSONL session contents.
-    output = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
-    matches = re.findall(r'To resume this session: pi --session (\S+)', output)
-    if not matches:
-        raise stopped_failure(info, 'authoritative exit resume line is missing')
-    token = matches[-1]
-    if '/' in token or token.startswith('~') or token.endswith('.jsonl'):
-        candidate = Path(token).expanduser()
-        if not candidate.is_absolute():
-            candidate = Path(info['cwd']) / candidate
+class ResumeSnapshot(NamedTuple):
+    text: str
+    matches: tuple[re.Match[str], ...]
+    bounded: bool
+    incomplete_escapes: bool
+
+
+def resume_snapshot(output):
+    # Remove OSC payloads first so titles/hyperlinks cannot count as exit lines.
+    text = re.sub(r'(?:\x1b\]|\x9d).*?(?:\x07|\x1b\\|\x9c)', '', output, flags=re.DOTALL)
+    text = re.sub(r'(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]', '', text)
+    incomplete = bool(re.search(r'\x1b[\[\]]|[\x9b\x9d]', text))
+    text = re.sub(r'\x1b[ -/]*[0-~]', '', text)
+    incomplete = incomplete or '\x1b' in text
+    # A saturated read cannot prove that older matches stayed in the window.
+    bounded = max(len(output.splitlines()), len(text.splitlines())) >= RESUME_READ_LINES
+    return ResumeSnapshot(text, tuple(RESUME_PATTERN.finditer(text)), bounded, incomplete)
+
+
+def exit_session(info, before, output):
+    after = resume_snapshot(output)
+    if before.bounded or after.bounded or before.incomplete_escapes or after.incomplete_escapes:
+        raise stopped_failure(info, f'resume freshness unproven within the {RESUME_READ_LINES}-line bound (truncated read or escapes)')
+    if len(after.matches) <= len(before.matches):
+        raise stopped_failure(info, 'no newly appeared authoritative exit resume line; freshness unproven')
+    previous_tokens = tuple(match.group(1) for match in before.matches)
+    if tuple(match.group(1) for match in after.matches[:len(before.matches)]) != previous_tokens:
+        raise stopped_failure(info, 'resume scrollback changed; freshness unproven')
+    match = after.matches[-1]
+    token = match.group(1)
+    # hc text has no reliable soft-wrap metadata. Never join physical lines or
+    # accept a possibly continued token, even if its prefix names an existing file.
+    if after.text[match.end():].strip():
+        raise stopped_failure(info, 'exit resume token is wrapped, continued or ambiguous')
+    if token.startswith('/') and re.fullmatch(r'/[^\s\x00-\x1f\x7f-\x9f]*\.jsonl', token):
+        candidate = Path(token)
         if not candidate.is_file():
             raise stopped_failure(info, f'exit session path {token!r} does not exist')
         return token, str(candidate.resolve())
+    if not SESSION_ID_PATTERN.fullmatch(token):
+        raise stopped_failure(info, 'exit resume token is incomplete or ambiguous; expected a whole UUID or absolute .jsonl path')
     # An id is resolved only to verify existence, never to choose a different
     # session. Keep the exact exit token in the replacement invocation.
     candidates = [path for path in session_candidates(info) if path.stem == token or path.stem.endswith('_' + token)]
@@ -177,6 +208,10 @@ def restart(info, interrupt=False):
     options = preflight(live)
     if not same_launcher(info, live):
         raise RuntimeError(f'{address}: occupant/launcher changed; refusing restart')
+    try:
+        before = resume_snapshot(cli('read', '--lines', str(RESUME_READ_LINES), address))
+    except Exception:
+        raise RuntimeError(f'{address} (cwd {live["cwd"]}): cannot read the pre-quit resume baseline; refusing input') from None
     state = status(live)
     if state not in ('idle', 'done') and (state != 'working' or not interrupt):
         raise RuntimeError(f'{address}: {state}; not restarted (working requires --interrupt)')
@@ -193,10 +228,10 @@ def restart(info, interrupt=False):
     cli('send', address, '/quit')
     wait_for(lambda: agent(address)['state'] == 'finished', f'{address} to exit Pi')
     try:
-        output = cli('read', '--lines', '40', address)
+        output = cli('read', '--lines', str(RESUME_READ_LINES), address)
     except Exception:
         raise stopped_failure(live, 'could not read the authoritative exit resume line') from None
-    token, path = exit_session(live, output)
+    token, path = exit_session(live, before, output)
     args = ['run', '--bg', '--no-parent', '--cwd', live['cwd']]
     if name:
         args += ['--name', name]
