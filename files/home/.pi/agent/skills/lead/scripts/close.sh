@@ -21,6 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$SLUG" ]] || usage_die "Usage: close.sh SLUG [--force]"
+validate_slug "$SLUG"
 
 STATE_FILE="$(state_file_for "$SLUG")"
 if [[ ! -f "$STATE_FILE" ]]; then
@@ -32,7 +33,7 @@ if [[ ! -f "$STATE_FILE" ]]; then
 fi
 
 resolve_state_fields "$STATE_FILE"
-WSID="$(jq -r '.workspaceId // empty' "$STATE_FILE")"
+TERMINAL="$(terminal_for_state "$STATE_FILE")"
 
 if [[ "$FORCE" != true ]]; then
   if ! is_branch_merged_into_base "$REPO" "$SLUG" "$BASE"; then
@@ -45,40 +46,15 @@ if [[ "$FORCE" != true ]]; then
   fi
 fi
 
-stop_watcher_if_ours "$WT"
-
+INFO="$(hc get "$TERMINAL")"
+if ! jq -e --arg slug "$SLUG" --arg cwd "$WT" '.cwd == $cwd and .labels["dotfiles.worker"] == $slug' <<<"$INFO" >/dev/null; then
+  echo "refuse: terminal ownership/cwd differs from worker state" >&2
+  exit 1
+fi
+if [[ "$(jq -r '.state' <<<"$INFO")" == live ]]; then
+  hc kill "$TERMINAL" >/dev/null
+fi
+hc rm "$TERMINAL" >/dev/null
 rm -f "$STATE_FILE"
-echo "state: removed ${SLUG}.json"
-
-if [[ -z "$WSID" ]]; then
-  WSID="$(resolve_workspace_id "$WT")"
-fi
-if [[ -n "$WSID" ]]; then
-  if herdr worktree remove --workspace "$WSID" --force >/dev/null; then
-    echo "worktree: removed workspace ${WSID}"
-  else
-    echo "worktree: herdr remove failed for ${WSID}" >&2
-  fi
-else
-  echo "worktree: workspace id unknown (skipped herdr remove)" >&2
-fi
-
-git -C "$REPO" worktree prune
-echo "git: worktree prune in ${REPO}"
-
-BRANCH_DEL=0
-if [[ "$FORCE" == true ]]; then
-  git -C "$REPO" branch -D "worktree/${SLUG}" && BRANCH_DEL=1 || true
-else
-  if git -C "$REPO" branch -d "worktree/${SLUG}"; then
-    BRANCH_DEL=1
-  else
-    echo "branch: could not delete worktree/${SLUG}" >&2
-    exit 1
-  fi
-fi
-if [[ "$BRANCH_DEL" -eq 1 ]]; then
-  echo "branch: deleted worktree/${SLUG}"
-fi
-
-echo "close: ${SLUG} done"
+echo "close: ${SLUG} terminal and state removed"
+echo "retained: $WT and worktree/${SLUG}; worktree deletion requires separate owner approval"

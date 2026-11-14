@@ -38,7 +38,7 @@ Dependencies, API/response-shape stability, design tokens, no new packages, secr
 
 ## Local running / ports
 
-How to run app/services; port if this worker shares a machine with others. Do not stop unrelated processes.
+How to run app/services; port if this worker shares a machine with others. Record the hc terminal address, not an old Herdr pane ID. Do not stop unrelated terminals/processes or move/delete existing worktree directories.
 
 ## Done when
 

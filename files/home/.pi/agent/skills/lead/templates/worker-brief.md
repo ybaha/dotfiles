@@ -3,6 +3,7 @@
 - Repo: `<repo-root>`
 - Base branch: `<branch>` @ `<sha>`
 - Worktree: `~/.herdr/worktrees/<repo>/<slug>` on `worktree/<slug>`
+- hc terminal: `<returned-address>`; visible grouping: `herdr.space=<slug>`, `herdr.tab=<slug>:t1`, `ovis.workspace=<slug>` (not legacy pane IDs)
 - Goal: <one sentence>
 - Locked decisions: <bullets>
 - Related paths: <list>

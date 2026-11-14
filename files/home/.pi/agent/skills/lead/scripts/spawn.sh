@@ -38,41 +38,33 @@ if [[ -z "$BASE" ]]; then
   BASE="$(git -C "$REPO" branch --show-current)"
 fi
 
+for dependency in hc jq python3; do
+  command -v "$dependency" >/dev/null || { echo "missing dependency: $dependency" >&2; exit 1; }
+done
+[[ -n "$BASE" ]] || { echo "detached HEAD: supply --base" >&2; exit 1; }
+PI_BIN="$(command -v pi)" || { echo "pi missing from caller PATH" >&2; exit 1; }
+
 if branch_worktree_exists "$REPO" "$SLUG"; then
   echo "branch worktree/${SLUG} already exists in repo" >&2
   exit 1
 fi
 if agent_name_exists "$SLUG"; then
-  echo "herdr agent named ${SLUG} already exists" >&2
+  echo "hc terminal named ${SLUG} already exists" >&2
   exit 1
+else
+  rc=$?
+  [[ "$rc" -eq 1 ]] || { echo "hc inventory failed; no worktree created" >&2; exit 1; }
 fi
 
 REPO_NAME="$(basename "$REPO")"
 WT_PATH="$HOME/.herdr/worktrees/${REPO_NAME}/${SLUG}"
-LEAD_PANE="${HERDR_PANE_ID:-}"
+LEAD_TERMINAL="${HC_TERMINAL_ID:-}"
 LEAD_CWD="$PWD"
 
-set +e
-CREATE_OUT="$(herdr worktree create \
-  --cwd "$REPO" \
-  --branch "worktree/${SLUG}" \
-  --path "$WT_PATH" \
-  --label "$SLUG" 2>&1)"
-CREATE_RC=$?
-set -e
-if [[ $CREATE_RC -ne 0 ]]; then
-  printf '%s\n' "$CREATE_OUT"
-  exit 1
-fi
-
-PANE_ID="$(jq -r '.result.root_pane.pane_id // empty' <<<"$CREATE_OUT")"
-WORKSPACE_ID="$(jq -r '.result.workspace.workspace_id // empty' <<<"$CREATE_OUT")"
-WT_PATH="$(jq -r '.result.worktree.path // empty' <<<"$CREATE_OUT")"
-if [[ -z "$PANE_ID" || -z "$WORKSPACE_ID" || -z "$WT_PATH" ]]; then
-  printf '%s\n' "$CREATE_OUT"
-  echo "failed to parse worktree create JSON" >&2
-  exit 1
-fi
+# Existing ~/.herdr/worktrees directories are user data: never replace them.
+[[ ! -e "$WT_PATH" ]] || { echo "worktree path already exists: $WT_PATH" >&2; exit 1; }
+git -C "$REPO" worktree add -b "worktree/${SLUG}" "$WT_PATH" "$BASE"
+WORKSPACE_ID="$SLUG"
 
 SETUP_LOG="$WT_PATH/.herdr-setup.log"
 : >"$SETUP_LOG"
@@ -89,36 +81,38 @@ if [[ -n "$SETUP" ]]; then
   fi
 fi
 
-if ! herdr agent start "$SLUG" --kind pi --pane "$PANE_ID" --timeout 60000 -- --model "$MODEL" >/dev/null; then
-  echo "herdr agent start failed" >&2
+LAUNCH="$(python3 - "$PI_BIN" "$MODEL" <<'PY'
+from pathlib import Path
+import shlex
+import sys
+pi, model = sys.argv[1:]
+print('PATH=' + shlex.quote(str(Path(pi).parent)) + ':$PATH exec ' + shlex.join([pi, '--model', model]))
+PY
+)"
+CREATE_OUT="$(hc run --bg --no-parent --name "$SLUG" --cwd "$WT_PATH" \
+  --label "herdr.space=$SLUG" --label "herdr.tab=$SLUG:t1" \
+  --label "ovis.workspace=$SLUG" --label "ovis.tab=worker" --label "ovis.pane=$SLUG" \
+  --label "dotfiles.worker=$SLUG" "$LAUNCH")"
+TERMINAL="$(jq -er '.address' <<<"$CREATE_OUT")"
+write_worker_state "$SLUG" "$TERMINAL" "$WT_PATH" "$BASE" "$REPO" "$LEAD_TERMINAL" "$LEAD_CWD"
+
+hc wait "$TERMINAL" --timeout 60 >/dev/null
+READY="$(hc get "$TERMINAL")"
+if ! jq -e '.state == "live" and .status.app == "pi" and (.status.state == "idle" or .status.state == "done")' <<<"$READY" >/dev/null; then
+  echo "worker not ready; inspect hc read $TERMINAL before sending its brief" >&2
   exit 1
 fi
 
-WATCHER_PY="$(watcher_script_path)"
-WATCHER_LOG="$WT_PATH/.herdr-watch.log"
-touch "$WATCHER_LOG"
-HERDR_PANE_ID="$PANE_ID" HERDR_AGENT_LABEL="$SLUG" \
-  nohup python3 -u "$WATCHER_PY" >>"$WATCHER_LOG" 2>&1 &
-WATCHER_PID=$!
-disown
-printf '%s\n' "$WATCHER_PID" >"$WT_PATH/.herdr-watcher.pid"
-
-ensure_herdr_gitexclude "$WT_PATH"
-
-SPAWNED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-write_worker_state "$SLUG" "$WATCHER_LOG" "$PANE_ID" "$SLUG" "$WT_PATH" "$SPAWNED_AT" \
-  "$BASE" "$REPO" "$WORKSPACE_ID" "$LEAD_PANE" "$LEAD_CWD"
-
 PROMPT_RC=0
 if ! "$SCRIPT_DIR/prompt.sh" "$SLUG" --file "$BRIEF"; then
-  echo "WARN: initial prompt to worker ${SLUG} may not have landed" >&2
+  echo "WARN: prompt failed; inspect hc read ${TERMINAL} before retrying" >&2
   PROMPT_RC=1
 fi
 
 echo "slug=${SLUG}"
 echo "branch=worktree/${SLUG}"
 echo "path=${WT_PATH}"
-echo "pane=${PANE_ID}"
+echo "terminal=${TERMINAL}"
 echo "workspace=${WORKSPACE_ID}"
 echo "model=${MODEL}"
 

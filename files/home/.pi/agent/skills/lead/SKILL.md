@@ -1,11 +1,11 @@
 ---
 name: lead
-description: Run one lead session that spawns and reviews Herdr worktree workers (like linked subagents). Use for "lead", "manage workers", "orchestrate", "work in worktrees", "you only do management", "delegate to multiple agents", or `/skill:lead`.
+description: Run one lead session that spawns and reviews labeled hc worktree workers (like linked subagents). Use for "lead", "manage workers", "orchestrate", "work in worktrees", "you only do management", "delegate to multiple agents", or `/skill:lead`.
 ---
 
 # Lead (worktree workers)
 
-One Pi session plans work, spawns isolated worktree workers, reviews their diffs, merges, and closes. Scripts: `~/.pi/agent/skills/lead/scripts/{spawn.sh,prompt.sh,status.sh,close.sh}`.
+One Pi session plans work, spawns isolated worktree workers, reviews their diffs, merges, and closes terminals. Read `hc --skill` first. A new visible workspace needs an explicit worktree/worker request; routine helpers stay as Pi background subagents. Scripts: `~/.pi/agent/skills/lead/scripts/{spawn.sh,prompt.sh,status.sh,close.sh}`.
 
 ## 1. Role
 
@@ -33,9 +33,7 @@ Default model is overridable; `delegate` and `scout` subagent frontmatter pins s
 
 ## 4. Wait
 
-Do not poll, sleep-loop, or start waiter subagents. The `worktree-lead` extension posts a follow-up when a worker is done, idle, blocked, or its pane exits (30s hold absorbs `done`→`working` blips). Footer shows lines like `ui-harmony · Working · 12m`. Meanwhile do other work or yield with a short status.
-
-On demand: `/workers`, `/workers close <slug>`, or `status.sh` / `status.sh --all`.
+Do not poll, sleep-loop, or start waiter subagents. hc owns observed Pi status (OSC 7501); use `hc get <terminal>`, `hc read --lines 80 <terminal>`, or `status.sh` / `status.sh --all` on demand. Use `hc wait <terminal>` only for an immediate dependency; otherwise continue independent work or yield. The legacy `worktree-lead` footer, follow-up notifications and `/workers` command are disabled on hc; no background watcher is started.
 
 ## 5. Review
 
@@ -45,7 +43,7 @@ Follow `templates/review-checklist.md`. Send corrections via:
 ~/.pi/agent/skills/lead/scripts/prompt.sh <slug> (--file f | --text "msg")
 ```
 
-`prompt.sh` confirms the prompt landed and resends once (fixes dropped first prompts).
+`spawn.sh` uses `git worktree add` (honoring `--base`) then `hc run --bg --no-parent` with herdr/ovis grouping labels. It preserves the caller-resolved Pi bin in PATH, records the returned terminal address, waits once for readiness, checks observed Pi status, then calls `prompt.sh`. This submits once via `hc send`; it never forces blocked dialogs or automatically resends uncertain input. Inspect `hc read` before retrying.
 
 ## 6. Integrate
 
@@ -57,14 +55,14 @@ Merge `worktree/<slug>` into base with `git merge --no-ff`. Rerun full checks an
 ~/.pi/agent/skills/lead/scripts/close.sh <slug> [--force]
 ```
 
-Refuses unmerged branch or dirty worktree unless `--force`. Confirm with `/workers`.
+Refuses an unmerged branch or dirty worktree unless `--force`, and always verifies terminal cwd and `dotfiles.worker` ownership. It uses `hc kill` then `hc rm` only for that explicitly approved terminal. It removes registration but retains the worktree and branch: deletion/moving of existing `~/.herdr/worktrees` directories is not authorized. `--force` does not bypass ownership or authorize filesystem deletion.
 
 ## 8. Gotchas
 
-- First prompt to a new worker can drop until `working` — scripts handle it; use `prompt.sh` for follow-ups too.
-- Never `pkill -f` / `pgrep -f | kill` — kills your own shell; `close.sh` kills the watcher PID only after verifying `/proc/<pid>/cmdline` contains `herdr-watch.py`.
+- On setup/start/readiness failure, worktree/state may remain. Inspect before retrying; do not automatically delete branches/directories.
+- No watcher PID, socket subscription or shell-background jobs are used. Never `pkill -f` or stop a terminal not recorded as your worker.
 - `delegate` / `scout` ignore caller `model`; frontmatter pins win — check `/agents`.
-- Herdr may log brief `done` then `working` when a background subagent starts; notifier waits 30s.
+- `HC_TERMINAL_ID` is an hc address, not a legacy pane ID. Old state files cannot safely target hc; migrate them manually. After an hc Pi restart, scripts resolve the preserved unique worker name to its new address and recheck ownership; read-only lead listing can fall back to cwd.
 - Shared services and ports belong to other projects — never stop them.
 - No secrets in briefs or work orders.
 - One writer per worktree; ask before push/deploy.
@@ -78,4 +76,4 @@ Refuses unmerged branch or dirty worktree unless `--force`. Confirm with `/worke
 ## See also
 
 - `/skill:worktree` — single worktree from the current session
-- `~/.pi/agent/extensions/worktree-lead.ts` — footer + finish notifications in the lead pane
+- `docs/agent-stack/HC.md` in dotfiles — terminal/label model and migration mapping

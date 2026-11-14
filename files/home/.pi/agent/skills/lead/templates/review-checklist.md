@@ -3,7 +3,7 @@
 ## 1. Read the worker report
 
 ```bash
-herdr agent read <slug>
+hc read --lines 100 <terminal>
 ```
 
 ## 2. Git evidence vs base
@@ -52,4 +52,4 @@ Rerun **full** checks and production build on the **combined** tree. Ask the use
 ~/.pi/agent/skills/lead/scripts/close.sh <slug>
 ```
 
-Confirm `/workers` shows no active worker for that slug.
+Confirm `status.sh` and `hc ls` show the worker registration/terminal removed. The worktree and branch are intentionally retained; removal requires separate owner approval.

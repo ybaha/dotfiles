@@ -17,10 +17,11 @@ done
 DIR="$(state_dir)"
 [[ -d "$DIR" ]] || { echo "no workers"; exit 0; }
 
-mapfile -t FILES < <(find "$DIR" -maxdepth 1 -name '*.json' -type f 2>/dev/null | sort)
+shopt -s nullglob
+FILES=("$DIR"/*.json)
 [[ ${#FILES[@]} -gt 0 ]] || { echo "no workers"; exit 0; }
 
-LEAD_PANE="${HERDR_PANE_ID:-}"
+LEAD_TERMINAL="${HC_TERMINAL_ID:-}"
 LEAD_CWD="$PWD"
 
 matches_lead() {
@@ -28,8 +29,8 @@ matches_lead() {
   if [[ "$SHOW_ALL" == true ]]; then
     return 0
   fi
-  if [[ -n "$LEAD_PANE" ]]; then
-    jq -e --arg p "$LEAD_PANE" '.lead.paneId == $p' "$f" >/dev/null 2>&1
+  if [[ -n "$LEAD_TERMINAL" ]]; then
+    jq -e --arg p "$LEAD_TERMINAL" --arg c "$LEAD_CWD" '.lead.terminal == $p or .lead.cwd == $c' "$f" >/dev/null 2>&1
   else
     jq -e --arg c "$LEAD_CWD" '.lead.cwd == $c' "$f" >/dev/null 2>&1
   fi
@@ -92,7 +93,16 @@ for f in "${FILES[@]}"; do
     merged="yes"
   fi
 
-  last="$(last_watch_line "$log")"
+  terminal="$(jq -r '.terminal // empty' "$f")"
+  if [[ -n "$terminal" ]]; then
+    if terminal="$(terminal_for_state "$f" 2>/dev/null)" && info="$(hc get "$terminal" 2>/dev/null)"; then
+      last="$(jq -r 'if .state == "finished" then "exited" else (.status.state // "unknown") end' <<<"$info")"
+    else
+      last="unavailable"
+    fi
+  else
+    last="legacy: $(last_watch_line "$log")"
+  fi
   printf "%-16s %-24s %5s %5s %6s\n" "$slug" "$last" "$ahead" "$dirty" "$merged"
 done
 
